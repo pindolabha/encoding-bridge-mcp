@@ -95,7 +95,7 @@ export function createServer(): Server {
       const elapsed = Date.now() - started
       const text = result.content.find(block => block.type === 'text')
       if (text) {
-        text.text = `${text.text}\n\n[codepage-bridge-timing: ${request.params.name} ${elapsed}ms]`
+        text.text = `${text.text}\n\n[encoding-bridge-timing: ${request.params.name} ${elapsed}ms]`
       }
       return result
     } catch (error) {
