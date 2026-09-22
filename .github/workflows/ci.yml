@@ -30,6 +30,19 @@ jobs:
       - name: Type check
         run: npm run check
 
+      - name: Diagnose settingsMerge (temp)
+        run: |
+          echo "=== settingsMerge.test.ts 前 12 字节 hexdump ==="
+          head -c 12 test/settingsMerge.test.ts | od -A x -t x1z
+          echo "=== settingsMerge.test.ts 第 6-8 行 hexdump ==="
+          sed -n '6,8p' test/settingsMerge.test.ts | od -A x -t x1z
+          echo "=== apply-claude-settings.js 前 12 字节 hexdump ==="
+          head -c 12 install/apply-claude-settings.js | od -A x -t x1z
+          echo "=== node 直接加载 apply-claude-settings.js ==="
+          node --input-type=module -e "import('./install/apply-claude-settings.js').then(m=>console.log('加载OK, 导出:', Object.keys(m))).catch(e=>{console.log('加载失败:', e.message); console.error(e)})"
+          echo "=== vitest 单独跑 settingsMerge (verbose) ==="
+          npx vitest run test/settingsMerge.test.ts --reporter=verbose 2>&1 || true
+
       - name: Test
         run: npm test
 
