@@ -174,27 +174,25 @@ describe('encoding-transparent text tools', () => {
       .rejects.toThrow(/not supported/)
   })
 
-  it('rejects a file over the default maximum even when a read limit is provided', async () => {
+  it('reads a few lines of a large file without a byte-size cap (chunked)', async () => {
     const root = await project()
-    const file = path.join(root, 'oversized.txt')
-    await writeFile(file, Buffer.alloc(32 * 1024 * 1024 + 1, 'x'))
-    await expect(executeRead({ file_path: file, offset: 1, limit: 1 }))
-      .rejects.toThrow(/exceeds the absolute maximum/)
+    const file = path.join(root, 'chunked.txt')
+    // A 40 MiB file, larger than the removed 32 MiB cap, read by range.
+    await writeFile(file, iconv.encode('line1\n' + 'x'.repeat(40 * 1024 * 1024) + '\nlast', 'gbk'))
+    const read = await executeRead({ file_path: file, offset: 1, limit: 1 })
+    const text = (read.content[0] as { text: string }).text
+    expect(text).toContain('line1')
   })
 
-  it('uses ENCODING_BRIDGE_MAX_TEXT_FILE_MIB for the Read limit', async () => {
+  it('reads a large GBK file by range with correct offset', async () => {
     const root = await project()
-    const file = path.join(root, 'configured.txt')
-    await writeFile(file, Buffer.alloc(2 * 1024 * 1024, 'x'))
-    const previous = process.env.ENCODING_BRIDGE_MAX_TEXT_FILE_MIB
-    process.env.ENCODING_BRIDGE_MAX_TEXT_FILE_MIB = '1'
-    try {
-      await expect(executeRead({ file_path: file, offset: 1, limit: 1 }))
-        .rejects.toThrow(/exceeds the absolute maximum/)
-    } finally {
-      if (previous === undefined) delete process.env.ENCODING_BRIDGE_MAX_TEXT_FILE_MIB
-      else process.env.ENCODING_BRIDGE_MAX_TEXT_FILE_MIB = previous
-    }
+    const file = path.join(root, 'large-range.txt')
+    const lines = Array.from({ length: 5000 }, (_, i) => `第${i}行 content`)
+    await writeFile(file, iconv.encode(lines.join('\n'), 'gbk'))
+    const read = await executeRead({ file_path: file, offset: 1000, limit: 2 })
+    const text = (read.content[0] as { text: string }).text
+    expect(text).toContain('第999行')
+    expect(text).toContain('第1000行')
   })
 
   it('rejects UNC paths before project discovery', async () => {

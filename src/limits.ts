@@ -1,5 +1,5 @@
 const BYTES_PER_MEBIBYTE = 1024 * 1024
-const DEFAULT_MAX_TEXT_FILE_MEBIBYTES = 32
+const DEFAULT_MAX_READ_OUTPUT_TOKENS = 25_000
 
 const DEFAULT_GREP_MAX_SCAN_BYTES = 256 * BYTES_PER_MEBIBYTE
 const DEFAULT_GREP_MAX_FILES = 10_000
@@ -44,10 +44,24 @@ export function grepLimits(): GrepLimits {
   }
 }
 
-export function maxTextFileBytes(): number {
-  const mebibytes = parsePositiveInteger(process.env.ENCODING_BRIDGE_MAX_TEXT_FILE_MIB)
-    ?? DEFAULT_MAX_TEXT_FILE_MEBIBYTES
-  return mebibytes * BYTES_PER_MEBIBYTE
+/**
+ * Rough token estimate for decoded text, mirroring Claude's Read tool: JSON
+ * ~2 chars/token, everything else ~4 chars/token. Guards against sending more
+ * output than fits comfortably in context. Read is chunked (readDecodedRange),
+ * so no byte-size cap is needed to protect memory.
+ */
+export function maxReadOutputTokens(): number {
+  return configuredPositiveInteger(
+    'ENCODING_BRIDGE_MAX_READ_OUTPUT_TOKENS',
+    DEFAULT_MAX_READ_OUTPUT_TOKENS,
+  )
+}
+
+export function estimateTextTokens(text: string, fileExtension: string): number {
+  const bytesPerToken = fileExtension === 'json' || fileExtension === 'jsonl' || fileExtension === 'jsonc'
+    ? 2
+    : 4
+  return Math.round(text.length / bytesPerToken)
 }
 
 export function formatMebibytes(bytes: number): string {

@@ -7,6 +7,7 @@ import {
   encodeText,
   ensureProjectIndex,
   lookupIndexedEncoding,
+  readFileRange,
   rememberIndexedEncoding,
   type DecodedText,
 } from './encoding/index.js'
@@ -141,6 +142,58 @@ export function encodeSnapshotText(snapshot: ReadSnapshot, text: string, preserv
     bom: snapshot.bom,
     newline: preserveNewline ? snapshot.newline : null,
   })
+}
+
+export interface ReadRangeSnapshot {
+  absolutePath: string
+  root: string
+  encoding: string
+  text: string
+  bom: DecodedText['bom']
+  newline: DecodedText['newline']
+  mtimeMs: number
+  size: number
+  hash: string
+  complete: boolean
+  totalLines: number
+}
+
+/**
+ * Chunked, encoding-aware line read, mirroring Claude's readFileInRange: only
+ * the selected line range is decoded, so reading a few lines of a huge legacy
+ * file doesn't balloon memory. Uses the precomputed encoding from the index.
+ */
+export async function readDecodedRange(
+  context: ProjectFileContext,
+  startLine: number,
+  limit?: number,
+): Promise<ReadRangeSnapshot> {
+  const state = await fileStateCache.read(context.root, context.absolutePath)
+  const encoding = await resolveFileEncoding(context.root, context.absolutePath, state)
+  // readFileRange uses 0-based line offsets (like Claude's readFileInRange);
+  // startLine here is 1-based.
+  const result = await readFileRange(
+    context.absolutePath,
+    encoding,
+    Math.max(0, startLine - 1),
+    limit,
+  )
+  const normalized = result.text
+    .replaceAll('\r\n', '\n')
+    .replaceAll('\r', '\n')
+  return {
+    absolutePath: context.absolutePath,
+    root: context.root,
+    encoding: result.encoding,
+    text: normalized,
+    bom: null,
+    newline: null,
+    mtimeMs: state.mtimeMs,
+    size: state.size,
+    hash: state.hash,
+    complete: false,
+    totalLines: result.totalLines,
+  }
 }
 
 interface ReadCoverage {

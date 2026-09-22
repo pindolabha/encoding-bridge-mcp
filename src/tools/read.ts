@@ -1,8 +1,8 @@
 import { stat } from 'node:fs/promises'
 import path from 'node:path'
 
-import { maxTextFileBytes } from '../limits.js'
-import { getProjectFileContext, readDecodedFile, readRegistry } from '../core.js'
+import { estimateTextTokens, maxReadOutputTokens } from '../limits.js'
+import { getProjectFileContext, readDecodedRange, readRegistry } from '../core.js'
 import { inspectProjectPath } from '../filesystem/index.js'
 import { readImage, readPdf, parseNotebook, mapNotebook } from '../media/index.js'
 import type { McpContentBlock } from '../media/index.js'
@@ -100,63 +100,68 @@ export async function executeRead(input: ReadInput): Promise<ToolResponse> {
     throw new Error('offset and limit are not supported for Jupyter notebooks; read the complete notebook')
   }
 
-  const maximumBytes = maxTextFileBytes()
-  if (info.size > maximumBytes) {
-    throw new Error(
-      `File content (${info.size} bytes) exceeds the absolute maximum (${maximumBytes} bytes). Set ENCODING_BRIDGE_MAX_TEXT_FILE_MIB to raise it.`,
-    )
-  }
   if (input.limit === undefined && info.size > DEFAULT_MAX_BYTES) {
     throw new Error(
       `File content (${info.size} bytes) exceeds maximum allowed size (${DEFAULT_MAX_BYTES} bytes). Use offset and limit to read a portion of the file.`,
     )
   }
 
-  const snapshot = await readDecodedFile(context)
-  const lines = snapshot.text.split('\n')
+  // Chunked, encoding-aware read (mirrors Claude's readFileInRange): only the
+  // selected line range is decoded, so large files don't balloon memory.
   const offset = input.offset === undefined || input.offset === 0 ? 1 : input.offset
-  const startIndex = offset - 1
-  const endIndex = input.limit === undefined ? lines.length : startIndex + input.limit
-  const selected = lines.slice(startIndex, endIndex)
+  const snapshot = await readDecodedRange(context, offset, input.limit)
+
+  // Token cap, mirroring Claude's Read: guard against sending more output than
+  // fits comfortably in context. Only enforced when reading the whole file
+  // (no limit); offset/limit reads are bounded by the caller.
+  const selectedText = snapshot.text
+  const maxTokens = maxReadOutputTokens()
+  const estTokens = estimateTextTokens(selectedText, path.extname(context.absolutePath).slice(1))
+  if (estTokens > maxTokens) {
+    throw new Error(
+      `File content (~${estTokens} tokens) exceeds maximum allowed tokens (${maxTokens}). Use offset and limit to read a portion of the file. Set ENCODING_BRIDGE_MAX_READ_OUTPUT_TOKENS to raise it.`,
+    )
+  }
   const remembered = {
     ...snapshot,
+    text: selectedText,
     complete: false,
-    ...(input.offset === undefined ? {} : { offset: input.offset }),
-    ...(input.limit === undefined ? {} : { limit: input.limit }),
+    offset: input.offset ?? 1,
+    limit: input.limit ?? snapshot.totalLines,
   }
 
-  if (snapshot.text.length === 0) {
+  if (selectedText.length === 0 && snapshot.size === 0) {
     readRegistry.remember(remembered, { startLine: 1, endLine: 1, totalLines: 1 })
     return { content: [{ type: 'text', text: '<system-reminder>Warning: the file exists but has empty contents.</system-reminder>' }] }
   }
-  if (startIndex >= lines.length) {
+  if (offset > snapshot.totalLines) {
     return {
       content: [{
         type: 'text',
-        text: `<system-reminder>Warning: offset ${offset} exceeds file length (${lines.length} lines).</system-reminder>`,
+        text: `<system-reminder>Warning: offset ${offset} exceeds file length (${snapshot.totalLines} lines).</system-reminder>`,
       }],
     }
   }
+  const selectedLines = selectedText.length === 0 ? [] : selectedText.split('\n')
   readRegistry.remember(remembered, {
     startLine: offset,
-    endLine: offset + selected.length - 1,
-    totalLines: lines.length,
+    endLine: offset + selectedLines.length - 1,
+    totalLines: snapshot.totalLines,
   })
   if (extension === '.ipynb') {
-    return { content: notebookContent(snapshot.text) }
+    return { content: notebookContent(selectedText) }
   }
 
-  const content = selected.join('\n')
   return {
-    content: [{ type: 'text', text: lineNumber(content, offset) }],
+    content: [{ type: 'text', text: lineNumber(selectedText, offset) }],
     structuredContent: {
       type: 'text',
       file: {
         filePath: context.absolutePath,
-        content,
-        numLines: selected.length,
+        content: selectedText,
+        numLines: selectedLines.length,
         startLine: offset,
-        totalLines: lines.length,
+        totalLines: snapshot.totalLines,
         encoding: snapshot.encoding,
       },
     },

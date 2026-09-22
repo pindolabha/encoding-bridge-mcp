@@ -100,16 +100,6 @@ claude mcp remove encoding-bridge -s user
 - 这个文件放在项目根，配置一次即可，**重启 VS Code / 重载会话都会沿用，不用每次手动加**。
 - 每个用户填**自己的**路径；发布的包本身不含任何写死的路径。
 
-### 大文本文件
-
-`Read` 和 `Grep` 默认允许单个文本文件最大为 `32 MiB`。如需调整，在启动 Claude Code 前把 `ENCODING_BRIDGE_MAX_TEXT_FILE_MIB` 设为正整数：
-
-```powershell
-setx ENCODING_BRIDGE_MAX_TEXT_FILE_MIB 64
-```
-
-修改环境变量后请重启 Claude Code。
-
 ---
 
 ## 怎么确认它真的在工作

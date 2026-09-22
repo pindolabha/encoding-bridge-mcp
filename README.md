@@ -99,16 +99,6 @@ the `ENCODING_BRIDGE_ROOTS` environment variable in the project `.mcp.json`:
 - Other users put their **own** paths here; the published package contains no
   hard-coded paths.
 
-### Large text files
-
-`Read` and `Grep` allow individual text files up to `32 MiB` by default. To use a different limit, set `ENCODING_BRIDGE_MAX_TEXT_FILE_MIB` to a positive integer before starting Claude Code:
-
-```powershell
-setx ENCODING_BRIDGE_MAX_TEXT_FILE_MIB 64
-```
-
-Restart Claude Code after changing the variable. Larger files require proportionally more Node.js memory while decoding, splitting lines, and matching regular expressions.
-
 ---
 
 ## Why
