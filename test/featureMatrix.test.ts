@@ -15,20 +15,21 @@ import { executeGrep } from '../src/tools/grep.js'
 import { executeRead } from '../src/tools/read.js'
 import { executeWrite } from '../src/tools/write.js'
 
+// These tests must NOT use process.chdir(): vitest runs test files in parallel,
+// and process.chdir is process-global, so one file's chdir would corrupt the
+// cwd another file's tests rely on (visible on macOS where /tmp is a symlink).
+// Instead, every test pins its root via ENCODING_BRIDGE_ROOTS, which is
+// process-global too but is always restored per test by afterEach, and each test
+// overrides it before touching the tools.
 async function project(prefix = 'encoding-mcp-matrix-'): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), prefix))
-  // The index root is process.cwd(), so switch into the temp dir so fixture
-  // files live inside the current root (matches the other tool tests).
-  process.chdir(root)
+  process.env.ENCODING_BRIDGE_ROOTS = root
   return root
 }
 
-// The index root is process.cwd(). On macOS/Linux the OS temp dir (/tmp) is a
-// symlink (e.g. to /private/tmp or /var/folders), so process.cwd() returns the
-// resolved path while mkdtemp() returns the symlink spelling. Always use the
-// resolved real path so root lookups and index reads match what the tools use.
 function realRoot(): string {
-  return realpathSync(process.cwd())
+  const configured = process.env.ENCODING_BRIDGE_ROOTS
+  return realpathSync(configured ?? process.cwd())
 }
 
 async function writeIndex(): Promise<void> {
@@ -41,20 +42,17 @@ async function indexFiles(): Promise<string[]> {
 }
 
 let previousRoots: string | undefined
-let previousCwd: string | undefined
 
 beforeEach(() => {
   fileStateCache.clear()
   readRegistry.clear()
   clearEncodingIndexCache()
   previousRoots = process.env.ENCODING_BRIDGE_ROOTS
-  previousCwd = process.cwd()
 })
 
 afterEach(() => {
   if (previousRoots === undefined) delete process.env.ENCODING_BRIDGE_ROOTS
   else process.env.ENCODING_BRIDGE_ROOTS = previousRoots
-  if (previousCwd !== undefined) process.chdir(previousCwd)
 })
 
 describe('feature matrix: Read', () => {
