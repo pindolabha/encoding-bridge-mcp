@@ -1,0 +1,23 @@
+# Normalize line endings: store everything as LF in the repo. Git will convert
+# to the platform default on checkout (CRLF on Windows, LF elsewhere) while the
+# committed blobs stay LF. This keeps source, shell scripts, and configs correct
+# on every OS and lets editors always detect UTF-8 without CRLF ambiguity.
+* text=auto eol=lf
+
+# Files that are always binary (never touch line endings).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.eot binary
+*.ttf binary
+*.otf binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.tgz binary
+*.wasm binary
+*.ico binary

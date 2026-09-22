@@ -56,7 +56,7 @@ claude mcp get encoding-bridge
 
 如果第二条命令显示 `Connected`，说明安装成功。请**新开**一个 Claude Code 会话后再用。
 
-安装脚本会自动把权限写进 `~/.claude/settings.json`：允许 MCP 工具，禁用内置 `Read` / `Grep` / `Edit` / `Write` / `NotebookEdit`。第一次打开混编码仓库时会在后台建立本机编码索引，不必手写规则，也不必再跑扫描工具。
+安装脚本会自动把权限写进 `~/.claude/settings.json`：允许 MCP 工具，禁用内置 `Read` / `Grep` / `Edit` / `Write` / `NotebookEdit`。第一次打开混编码仓库时会在后台自动建立本机编码索引，无需任何手动配置。
 
 ### 避免重复注册
 
