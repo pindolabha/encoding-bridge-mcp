@@ -47,7 +47,8 @@ jobs:
             }
           " 2>&1 || true
           echo "=== vitest 带完整堆栈跑 settingsMerge ==="
-          NODE_OPTIONS="--stack-trace-limit=100" npx vitest run test/settingsMerge.test.ts --reporter=basic --no-file-parallelism 2>&1 || true
+          $env:NODE_OPTIONS="--stack-trace-limit=100"
+          npx vitest run test/settingsMerge.test.ts --reporter=basic 2>&1 || true
 
       - name: Test
         run: npm test
