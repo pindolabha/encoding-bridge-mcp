@@ -47,6 +47,10 @@
   "engines": {
     "node": ">=20"
   },
+  "trustedDependencies": [
+    "esbuild",
+    "sharp"
+  ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.0",
     "@vscode/ripgrep": "^1.18.0",
