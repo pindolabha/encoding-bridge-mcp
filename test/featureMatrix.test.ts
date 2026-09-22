@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -22,13 +23,21 @@ async function project(prefix = 'encoding-mcp-matrix-'): Promise<string> {
   return root
 }
 
-async function writeIndex(root: string): Promise<void> {
-  await flushEncodingIndex(root)
+// The index root is process.cwd(). On macOS/Linux the OS temp dir (/tmp) is a
+// symlink (e.g. to /private/tmp or /var/folders), so process.cwd() returns the
+// resolved path while mkdtemp() returns the symlink spelling. Always use the
+// resolved real path so root lookups and index reads match what the tools use.
+function realRoot(): string {
+  return realpathSync(process.cwd())
 }
 
-async function indexFiles(root: string): Promise<string[]> {
-  await writeIndex(root)
-  return readdir(path.join(root, INDEX_DIRECTORY))
+async function writeIndex(): Promise<void> {
+  await flushEncodingIndex(realRoot())
+}
+
+async function indexFiles(): Promise<string[]> {
+  await writeIndex()
+  return readdir(path.join(realRoot(), INDEX_DIRECTORY))
 }
 
 let previousRoots: string | undefined
@@ -125,10 +134,10 @@ describe('feature matrix: encoding index', () => {
     const file = path.join(root, 'indexed.txt')
     await writeFile(file, iconv.encode('索引测试', 'gbk'))
     await executeRead({ file_path: file })
-    await writeIndex(root)
-    const files = await indexFiles(root)
+    await writeIndex()
+    const files = await indexFiles()
     expect(files).toContain(INDEX_FILE)
-    const document = JSON.parse(await readFile(path.join(root, INDEX_DIRECTORY, INDEX_FILE), 'utf8'))
+    const document = JSON.parse(await readFile(path.join(realRoot(), INDEX_DIRECTORY, INDEX_FILE), 'utf8'))
     const entry = Object.values(document.files)[0] as { encoding: string }
     expect(['gbk', 'gb18030']).toContain(entry.encoding)
   })
@@ -138,17 +147,17 @@ describe('feature matrix: encoding index', () => {
     const file = path.join(root, 'watched.txt')
     await writeFile(file, iconv.encode('汉字', 'gbk'))
     await executeRead({ file_path: file })
-    await writeIndex(root)
-    const before = await listIndexedEncodings(root)
+    await writeIndex()
+    const before = await listIndexedEncodings(realRoot())
     // The GBK/gb18030 detector is ambiguous for some byte sequences; assert membership.
     expect(['gbk', 'gb18030']).toContain([...before.values()][0]?.encoding)
 
     // Simulate a watcher event after the file's bytes change on disk.
     await writeFile(file, 'plain utf8 text\n', 'utf8')
     const info = await stat(file)
-    await refreshEncodingIndex(root, file)
-    await writeIndex(root)
-    const after = await listIndexedEncodings(root)
+    await refreshEncodingIndex(realRoot(), file)
+    await writeIndex()
+    const after = await listIndexedEncodings(realRoot())
     expect([...after.values()][0]?.encoding).toBe('utf-8')
     expect(([...after.values()][0]?.size)).toBe(info.size)
   })
@@ -158,13 +167,13 @@ describe('feature matrix: encoding index', () => {
     const file = path.join(root, 'stale.txt')
     await writeFile(file, iconv.encode('旧', 'gbk'))
     await executeRead({ file_path: file })
-    await writeIndex(root)
+    await writeIndex()
     // Overwrite with UTF-8; the index still holds gbk but the bytes changed.
     await writeFile(file, 'new utf8 content\n', 'utf8')
     fileStateCache.clear()
     await executeRead({ file_path: file })
-    await writeIndex(root)
-    const after = await listIndexedEncodings(root)
+    await writeIndex()
+    const after = await listIndexedEncodings(realRoot())
     expect([...after.values()][0]?.encoding).toBe('utf-8')
   })
 })
@@ -175,7 +184,7 @@ describe('feature matrix: roots', () => {
     const file = path.join(root, 'single.txt')
     await writeFile(file, 'x\n', 'utf8')
     const context = await getProjectFileContext(file)
-    expect(path.resolve(context.root)).toBe(path.resolve(root))
+    expect(realpathSync(context.root)).toBe(realRoot())
   })
 
   it('resolves a multi-root workspace to the deepest configured root', async () => {
@@ -188,7 +197,7 @@ describe('feature matrix: roots', () => {
     const file = path.join(inner, 'deep.txt')
     await writeFile(file, 'deep\n', 'utf8')
     const context = await getProjectFileContext(file)
-    expect(path.resolve(context.root)).toBe(path.resolve(inner))
+    expect(realpathSync(context.root)).toBe(realpathSync(inner))
   })
 
   it('auto-registers a root for a file outside every configured root', async () => {
@@ -198,7 +207,7 @@ describe('feature matrix: roots', () => {
     await writeFile(file, 'out\n', 'utf8')
     delete process.env.ENCODING_BRIDGE_ROOTS
     const context = await getProjectFileContext(file)
-    expect(path.resolve(context.root)).toBe(path.resolve(outside))
-    expect(configuredRoots().map(item => path.resolve(item))).toContain(path.resolve(outside))
+    expect(realpathSync(context.root)).toBe(realpathSync(outside))
+    expect(configuredRoots().map(item => realpathSync(item))).toContain(realpathSync(outside))
   })
 })

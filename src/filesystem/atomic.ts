@@ -54,10 +54,20 @@ export async function atomicWriteBuffer(
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
     }
-    let mode = options.mode ?? 0o666;
+    let mode = options.mode;
     const temp = temporaryName(initial.target, "tmp");
     let handle;
     try {
+      // Preserve the original file's mode on replace: temp+rename would otherwise
+      // reset it to the umask-affected default for new files.
+      if (mode === undefined) {
+        try {
+          mode = (await stat(initial.target)).mode & 0o7777;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          mode = 0o666;
+        }
+      }
       handle = await open(temp, "wx", mode);
       await handle.writeFile(buffer);
       await handle.close();
