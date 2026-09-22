@@ -16,7 +16,6 @@ Require-Command claude
 
 Write-Host "[1/3] Registering Encoding Bridge from npm..."
 try { claude mcp remove $ServerName --scope $Scope | Out-Null } catch {}
-try { claude mcp remove codepage-bridge --scope $Scope | Out-Null } catch {}
 claude mcp add --scope $Scope $ServerName -- npx -y encoding-bridge-mcp
 
 Write-Host "[2/3] Verifying MCP connection..."

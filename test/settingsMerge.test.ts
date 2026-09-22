@@ -23,15 +23,14 @@ describe('Claude Code settings merge', () => {
     })
   })
 
-  it('replaces legacy codepage-bridge allow entries', () => {
+  it('merges MCP allow rules without dropping existing entries', () => {
     const { settings } = mergePermissionSettings({
       permissions: {
-        allow: ['mcp__codepage-bridge__Read', 'Bash'],
+        allow: ['Bash'],
       },
     })
-    expect(settings.permissions.allow).toContain('mcp__encoding-bridge__Read')
-    expect(settings.permissions.allow).not.toContain('mcp__codepage-bridge__Read')
     expect(settings.permissions.allow).toContain('Bash')
+    expect(settings.permissions.allow).toContain('mcp__encoding-bridge__Read')
   })
 
   it('is idempotent', () => {

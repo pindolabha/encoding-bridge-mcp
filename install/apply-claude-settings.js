@@ -39,10 +39,13 @@ function mergeUnique(existing, extra) {
   return result
 }
 
-function withoutLegacyAllow(existing) {
-  return existing.filter(item => !item.startsWith('mcp__codepage-bridge__'))
+function mergeUnique(existing) {
+  const result = []
+  for (const item of existing) {
+    if (!result.includes(item)) result.push(item)
+  }
+  return result
 }
-
 export function mergePermissionSettings(current) {
   const settings = current && typeof current === 'object' && !Array.isArray(current)
     ? { ...current }
@@ -50,8 +53,8 @@ export function mergePermissionSettings(current) {
   const permissions = settings.permissions && typeof settings.permissions === 'object' && !Array.isArray(settings.permissions)
     ? { ...settings.permissions }
     : {}
-  const allow = mergeUnique(withoutLegacyAllow(asStringArray(permissions.allow)), ALLOW)
-  const deny = mergeUnique(asStringArray(permissions.deny), DENY)
+  const allow = mergeUnique([...asStringArray(permissions.allow), ...ALLOW])
+  const deny = mergeUnique([...asStringArray(permissions.deny), ...DENY])
   const nextPermissions = { ...permissions, allow, deny }
   const before = JSON.stringify(settings.permissions ?? null)
   const after = JSON.stringify(nextPermissions)

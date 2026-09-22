@@ -16,7 +16,6 @@ require_command claude
 
 echo "[1/3] Registering Encoding Bridge from npm..."
 claude mcp remove "$SERVER_NAME" --scope "$SCOPE" >/dev/null 2>&1 || true
-claude mcp remove codepage-bridge --scope "$SCOPE" >/dev/null 2>&1 || true
 claude mcp add --scope "$SCOPE" "$SERVER_NAME" -- npx -y encoding-bridge-mcp
 
 echo "[2/3] Verifying MCP connection..."
