@@ -39,7 +39,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          cat > /tmp/diag.mjs <<'EOF'
+          # Script must live in the project root so `import 'vite'` resolves node_modules.
+          cat > ./diag-settings.mjs <<'EOF'
           import { createServer } from 'vite';
           import path from 'node:path';
           import fs from 'node:fs';
@@ -51,7 +52,6 @@ jobs:
           });
           const id = path.resolve('test/settingsMerge.test.ts');
           try {
-            // Reproduce exactly what vitest does: load the test module through vite.
             await server.ssrLoadModule(id);
             console.log('[diag] ssrLoadModule OK');
           } catch (e) {
@@ -62,7 +62,6 @@ jobs:
             console.log('[diag] plugin:', e?.plugin);
             console.log('[diag] errors:', JSON.stringify(e?.errors ?? null, null, 2));
             console.log('[diag] stack:', e?.stack);
-            // esbuild transform error details
             const code = fs.readFileSync(id, 'utf8');
             const { transformWithEsbuild } = await import('vite');
             try {
@@ -82,7 +81,8 @@ jobs:
           }
           await server.close();
           EOF
-          node /tmp/diag.mjs 2>&1 || true
+          node ./diag-settings.mjs 2>&1 || true
+          rm -f ./diag-settings.mjs
 
       - name: Build
         run: npm run build
