@@ -27,9 +27,12 @@ async function project(prefix = 'encoding-mcp-matrix-'): Promise<string> {
   return root
 }
 
+// The tools resolve roots via path.resolve() (configuredRoots), NOT realpath.
+// On macOS /var is a symlink to /private/var, so path.resolve() keeps the
+// symlink spelling while realpathSync() resolves it. Index reads must use the
+// exact root string the tools used to write the index, so return path.resolve().
 function realRoot(): string {
-  const configured = process.env.ENCODING_BRIDGE_ROOTS
-  return realpathSync(configured ?? process.cwd())
+  return path.resolve(process.env.ENCODING_BRIDGE_ROOTS ?? process.cwd())
 }
 
 async function writeIndex(): Promise<void> {
@@ -182,7 +185,7 @@ describe('feature matrix: roots', () => {
     const file = path.join(root, 'single.txt')
     await writeFile(file, 'x\n', 'utf8')
     const context = await getProjectFileContext(file)
-    expect(realpathSync(context.root)).toBe(realRoot())
+    expect(realpathSync(context.root)).toBe(realpathSync(realRoot()))
   })
 
   it('resolves a multi-root workspace to the deepest configured root', async () => {
