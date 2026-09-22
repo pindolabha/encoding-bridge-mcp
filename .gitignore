@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+*.tmp.*
+.claude/
+.encoding-bridge/
+openspec/
+!.mcp.json

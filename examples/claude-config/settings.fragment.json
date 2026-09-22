@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__encoding-bridge__Read",
+      "mcp__encoding-bridge__Grep",
+      "mcp__encoding-bridge__Edit",
+      "mcp__encoding-bridge__Write"
+    ],
+    "deny": [
+      "Read",
+      "Grep",
+      "Edit",
+      "Write",
+      "NotebookEdit"
+    ]
+  }
+}

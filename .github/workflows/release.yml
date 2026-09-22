@@ -1,0 +1,267 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to package (for example v0.1.5)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag format
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RELEASE_TAG" in
+            v*) ;;
+            *) echo "Release tag must start with v" >&2; exit 1 ;;
+          esac
+
+      - name: Setup Node.js for npm publish
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run check
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Dry-run package
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+
+  release-assets:
+    needs: publish-npm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: linux-x64
+            archive: tar.gz
+          - os: macos-latest
+            artifact: darwin-arm64
+            archive: tar.gz
+          - os: windows-latest
+            artifact: win32-x64
+            archive: zip
+
+    runs-on: ${{ matrix.os }}
+
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run check
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Prune dev dependencies
+        run: npm prune --omit=dev
+
+      - name: Prepare release directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="encoding-bridge-${RELEASE_TAG}-${{ matrix.artifact }}"
+          OUT="release/${NAME}"
+          mkdir -p "$OUT"
+          cp -R dist "$OUT/"
+          cp -R node_modules "$OUT/"
+          cp package.json "$OUT/"
+          cp LICENSE "$OUT/"
+          cp README.md "$OUT/"
+          cp README_CN.md "$OUT/"
+          cp -R examples "$OUT/"
+          cp -R install "$OUT/"
+          cp -R .claude-plugin "$OUT/"
+          cp .mcp.json "$OUT/"
+
+      - name: Archive release (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="encoding-bridge-${RELEASE_TAG}-${{ matrix.artifact }}"
+          tar -czf "${NAME}.tar.gz" -C release "$NAME"
+
+      - name: Archive release (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $name = "encoding-bridge-${env:RELEASE_TAG}-${{ matrix.artifact }}"
+          Compress-Archive -Path "release/$name" -DestinationPath "$name.zip" -Force
+
+      - name: Generate SHA256 checksum (Unix)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE="encoding-bridge-${RELEASE_TAG}-${{ matrix.artifact }}.${{ matrix.archive }}"
+          sha256sum "$FILE" > "$FILE.sha256"
+
+      - name: Generate SHA256 checksum (Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $file = "encoding-bridge-${env:RELEASE_TAG}-${{ matrix.artifact }}.${{ matrix.archive }}"
+          $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -Path "$file.sha256" -Value "$hash  $file" -Encoding utf8
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          append_body: false
+          generate_release_notes: true
+          body: |
+            ## Encoding Bridge MCP
+
+            npm package publication completed before these assets were built.
+
+            Release assets include:
+
+            - prebuilt `dist/`
+            - production `node_modules/`
+            - installer scripts in `install/`
+            - configuration templates in `examples/`
+            - plugin manifests in `.claude-plugin/`
+            - plugin-local `.mcp.json`
+            - `README.md` and `README_CN.md`
+            - platform SHA256 files
+
+            ### Choose the right installer
+
+            #### If you already downloaded and extracted a release package
+
+            **Windows**
+            ```powershell
+            powershell -ExecutionPolicy Bypass -File .\install\install-this-release-windows.ps1
+            ```
+
+            **macOS / Linux**
+            ```bash
+            bash ./install/install-this-release-unix.sh
+            ```
+
+            #### If you want the installer to download the release for you
+
+            **Windows**
+            ```powershell
+            powershell -ExecutionPolicy Bypass -File .\install\download-release-windows.ps1 -Version ${{ env.RELEASE_TAG }}
+            ```
+
+            **macOS / Linux**
+            ```bash
+            bash ./install/download-release-unix.sh ${{ env.RELEASE_TAG }}
+            ```
+
+            #### If you are a contributor working from source
+
+            **Windows**
+            ```powershell
+            powershell -ExecutionPolicy Bypass -File .\install\install-from-source-windows.ps1
+            ```
+
+            **macOS / Linux**
+            ```bash
+            bash ./install/install-from-source-unix.sh
+            ```
+
+            ### npm publish note
+
+            This workflow uses npm Trusted Publishing with GitHub OIDC.
+            No long-lived `NPM_TOKEN` is required for publishing.
+
+            ### Important
+
+            The install scripts merge Claude Code permissions automatically
+            (MCP tools allowed, built-in file tools denied). No manual
+            `.encoding-rules` file or `settings.json` edit is required.
+
+            After installing, start a **new** Claude Code session. The first
+            Read/Grep in a project builds a local encoding index in the
+            background automatically.
+
+            For a **multi-root workspace**, list the extra roots via
+            `ENCODING_BRIDGE_ROOTS` in the project `.mcp.json` (see README →
+            Multi-root workspaces). A single-folder workspace needs no
+            configuration.
+
+          files: |
+            encoding-bridge-${{ env.RELEASE_TAG }}-${{ matrix.artifact }}.${{ matrix.archive }}
+            encoding-bridge-${{ env.RELEASE_TAG }}-${{ matrix.artifact }}.${{ matrix.archive }}.sha256
+
+  checksums:
+    needs: release-assets
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+    steps:
+      - name: Download current release checksum assets
+        uses: robinraju/release-downloader@v1
+        with:
+          tag: ${{ env.RELEASE_TAG }}
+          fileName: 'encoding-bridge-${{ env.RELEASE_TAG }}-*.sha256'
+          out-file-path: assets
+
+      - name: Build combined checksums file
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat assets/*.sha256 > checksums.txt
+
+      - name: Upload combined checksums
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: checksums.txt

@@ -1,0 +1,19 @@
+{
+  "name": "encoding-bridge-marketplace",
+  "owner": {
+    "name": "pindolabha"
+  },
+  "metadata": {
+    "description": "Marketplace manifest for Encoding Bridge, an encoding-transparent MCP file tool plugin for Claude Code.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "encoding-bridge",
+      "source": "./",
+      "description": "Encoding-transparent Read, Grep, Edit, and Write tools for mixed-encoding projects.",
+      "category": "developer-tools",
+      "tags": ["mcp", "encoding", "gbk", "legacy-encoding", "claude-code", "grep", "edit", "read"]
+    }
+  ]
+}

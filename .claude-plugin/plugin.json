@@ -1,0 +1,15 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "encoding-bridge",
+  "version": "1.0.0",
+  "description": "Encoding-transparent file tools for Claude Code. Adds Read, Grep, Edit, and Write over MCP with automatic encoding detection.",
+  "author": {
+    "name": "pindolabha",
+    "url": "https://github.com/pindolabha"
+  },
+  "commands": [
+    "./commands/setup.md",
+    "./commands/setup-project.md",
+    "./commands/doctor.md"
+  ]
+}

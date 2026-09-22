@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "encoding-bridge": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/absolute/path/to/encoding-bridge-mcp/dist/src/server.js"
+      ]
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "name": "encoding-bridge-mcp",
+  "version": "1.0.0",
+  "description": "Encoding-transparent MCP file tools for Claude Code",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "encoding-bridge-mcp": "dist/src/server.js"
+  },
+  "files": [
+    "dist/src/",
+    "LICENSE",
+    "README.md",
+    "README_CN.md",
+    "examples/",
+    "install/",
+    ".claude-plugin/",
+    ".mcp.json"
+  ],
+  "scripts": {
+    "clean": "node -e \"const fs=require('fs'); fs.rmSync('dist',{recursive:true,force:true})\"",
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "start": "node dist/src/server.js",
+    "prepublishOnly": "npm run check && npm test && npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pindolabha/encoding-bridge-mcp.git"
+  },
+  "homepage": "https://github.com/pindolabha/encoding-bridge-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/pindolabha/encoding-bridge-mcp/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "mcp",
+    "encoding",
+    "gbk",
+    "legacy-encoding",
+    "grep",
+    "read",
+    "edit",
+    "write"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.0",
+    "@vscode/ripgrep": "^1.18.0",
+    "diff": "^8.0.2",
+    "iconv-lite": "^0.6.3",
+    "picomatch": "^4.0.3",
+    "sharp": "^0.34.3"
+  },
+  "devDependencies": {
+    "@types/diff": "^7.0.2",
+    "@types/node": "^24.0.15",
+    "@types/picomatch": "^4.0.2",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}
