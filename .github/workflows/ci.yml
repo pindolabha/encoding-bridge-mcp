@@ -32,35 +32,22 @@ jobs:
 
       - name: Diagnose settingsMerge (temp)
         run: |
-          echo "=== vite transformWithEsbuild 转换 settingsMerge.test.ts ==="
+          echo "=== vite transformWithEsbuild 转换 apply-claude-settings.js ==="
           node --input-type=module -e "
             import { transformWithEsbuild } from 'vite';
             import fs from 'node:fs';
-            const code = fs.readFileSync('test/settingsMerge.test.ts','utf8');
+            const code = fs.readFileSync('install/apply-claude-settings.js','utf8');
             try {
-              await transformWithEsbuild(code, 'test/settingsMerge.test.ts', { loader: 'ts' });
-              console.log('transformWithEsbuild OK');
+              await transformWithEsbuild(code, 'install/apply-claude-settings.js', { loader: 'js' });
+              console.log('apply-claude-settings.js transformWithEsbuild OK');
             } catch (e) {
-              console.log('transformWithEsbuild ERROR:');
+              console.log('apply-claude-settings.js transformWithEsbuild ERROR:');
               console.log('message:', e.message);
               console.log('errors:', JSON.stringify(e.errors ?? e, null, 2));
-              console.log('stack:', e.stack);
             }
           " 2>&1 || true
-          echo "=== esbuild 直接转换 settingsMerge.test.ts ==="
-          node -e "
-            const esbuild = require('esbuild');
-            const fs = require('fs');
-            const code = fs.readFileSync('test/settingsMerge.test.ts','utf8');
-            try {
-              const r = esbuild.transformSync(code, { loader: 'ts', format: 'esm' });
-              console.log('esbuild transform OK, len', r.code.length);
-            } catch(e) {
-              console.log('esbuild transform ERROR:');
-              console.log(e.message);
-              console.log(JSON.stringify(e.errors, null, 2));
-            }
-          " 2>&1 || true
+          echo "=== vitest 带完整堆栈跑 settingsMerge ==="
+          NODE_OPTIONS="--stack-trace-limit=100" npx vitest run test/settingsMerge.test.ts --reporter=basic --no-file-parallelism 2>&1 || true
 
       - name: Test
         run: npm test
