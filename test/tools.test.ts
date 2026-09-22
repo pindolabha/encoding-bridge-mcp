@@ -177,11 +177,15 @@ describe('encoding-transparent text tools', () => {
   it('reads a few lines of a large file without a byte-size cap (chunked)', async () => {
     const root = await project()
     const file = path.join(root, 'chunked.txt')
-    // A 40 MiB file, larger than the removed 32 MiB cap, read by range.
-    await writeFile(file, iconv.encode('line1\n' + 'x'.repeat(40 * 1024 * 1024) + '\nlast', 'gbk'))
+    // A file over the 10 MB streaming threshold; only line 1 is read, proving
+    // the reader decodes just the selected range rather than the whole file.
+    const line1 = 'line1'
+    const filler = 'x'.repeat(11 * 1024 * 1024) // ~11 MiB of one line
+    await writeFile(file, Buffer.from(`${line1}\n${filler}\nlast`))
     const read = await executeRead({ file_path: file, offset: 1, limit: 1 })
     const text = (read.content[0] as { text: string }).text
     expect(text).toContain('line1')
+    expect(text).not.toContain('last')
   })
 
   it('reads a large GBK file by range with correct offset', async () => {
