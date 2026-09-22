@@ -35,54 +35,8 @@ jobs:
       - name: Type check
         run: npm run check
 
-      - name: Diagnose settingsMerge full error (temp, windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          # Script must live in the project root so `import 'vite'` resolves node_modules.
-          cat > ./diag-settings.mjs <<'EOF'
-          import { createServer } from 'vite';
-          import path from 'node:path';
-          import fs from 'node:fs';
-          const server = await createServer({
-            server: { middlewareMode: true },
-            appType: 'custom',
-            logLevel: 'silent',
-            optimizeDeps: { noDiscovery: true },
-          });
-          const id = path.resolve('test/settingsMerge.test.ts');
-          try {
-            await server.ssrLoadModule(id);
-            console.log('[diag] ssrLoadModule OK');
-          } catch (e) {
-            console.log('[diag] name:', e?.name);
-            console.log('[diag] message:', e?.message);
-            console.log('[diag] id:', e?.id);
-            console.log('[diag] frame:', JSON.stringify(e?.frame ?? null));
-            console.log('[diag] plugin:', e?.plugin);
-            console.log('[diag] errors:', JSON.stringify(e?.errors ?? null, null, 2));
-            console.log('[diag] stack:', e?.stack);
-            const code = fs.readFileSync(id, 'utf8');
-            const { transformWithEsbuild } = await import('vite');
-            try {
-              await transformWithEsbuild(code, id, { loader: 'ts' });
-              console.log('[diag] transformWithEsbuild(test) OK');
-            } catch (te) {
-              console.log('[diag] transformWithEsbuild(test) ERR:', JSON.stringify(te?.errors ?? te, null, 2));
-            }
-            const jsCode = fs.readFileSync('install/apply-claude-settings.js', 'utf8');
-            try {
-              await transformWithEsbuild(jsCode, 'install/apply-claude-settings.js', { loader: 'js' });
-              console.log('[diag] transformWithEsbuild(apply-claude-settings.js) OK');
-            } catch (te) {
-              console.log('[diag] transformWithEsbuild(apply-claude-settings.js) ERR:', JSON.stringify(te?.errors ?? te, null, 2));
-            }
-            process.exit(1);
-          }
-          await server.close();
-          EOF
-          node ./diag-settings.mjs 2>&1 || true
-          rm -f ./diag-settings.mjs
+      - name: Test
+        run: npm test
 
       - name: Build
         run: npm run build
