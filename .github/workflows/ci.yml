@@ -25,6 +25,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
+        shell: bash
         run: |
           # npm 11.19 blocks install scripts unless approved; esbuild (vitest's
           # transformer) and sharp (native module) need theirs to run on CI.

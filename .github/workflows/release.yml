@@ -43,6 +43,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
+        shell: bash
         run: |
           npm install-scripts approve esbuild sharp 2>/dev/null || true
           npm ci
@@ -96,6 +97,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
+        shell: bash
         run: |
           npm install-scripts approve esbuild sharp 2>/dev/null || true
           npm ci
