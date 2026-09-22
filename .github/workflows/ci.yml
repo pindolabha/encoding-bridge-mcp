@@ -32,23 +32,24 @@ jobs:
 
       - name: Diagnose settingsMerge (temp)
         run: |
-          echo "=== vite transformWithEsbuild 转换 apply-claude-settings.js ==="
+          echo "=== vite createServer + ssrLoadModule 完整加载 settingsMerge.test.ts ==="
           node --input-type=module -e "
-            import { transformWithEsbuild } from 'vite';
-            import fs from 'node:fs';
-            const code = fs.readFileSync('install/apply-claude-settings.js','utf8');
+            import { createServer } from 'vite';
+            import path from 'node:path';
             try {
-              await transformWithEsbuild(code, 'install/apply-claude-settings.js', { loader: 'js' });
-              console.log('apply-claude-settings.js transformWithEsbuild OK');
+              const server = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'error' });
+              const url = path.resolve('test/settingsMerge.test.ts');
+              await server.ssrLoadModule(url);
+              console.log('ssrLoadModule OK');
+              await server.close();
             } catch (e) {
-              console.log('apply-claude-settings.js transformWithEsbuild ERROR:');
-              console.log('message:', e.message);
-              console.log('errors:', JSON.stringify(e.errors ?? e, null, 2));
+              console.log('ssrLoadModule ERROR:');
+              console.log('name:', e?.name);
+              console.log('message:', e?.message);
+              console.log('stack:', e?.stack);
+              console.log('id:', e?.id);
             }
           " 2>&1 || true
-          echo "=== vitest 带完整堆栈跑 settingsMerge ==="
-          $env:NODE_OPTIONS="--stack-trace-limit=100"
-          npx vitest run test/settingsMerge.test.ts --reporter=basic 2>&1 || true
 
       - name: Test
         run: npm test
