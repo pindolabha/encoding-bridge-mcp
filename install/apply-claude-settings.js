@@ -28,17 +28,6 @@ function asStringArray(value) {
   return Array.isArray(value) ? value.filter(item => typeof item === 'string') : []
 }
 
-function mergeUnique(existing, extra) {
-  const seen = new Set(existing)
-  const result = [...existing]
-  for (const item of extra) {
-    if (seen.has(item)) continue
-    seen.add(item)
-    result.push(item)
-  }
-  return result
-}
-
 function mergeUnique(existing) {
   const result = []
   for (const item of existing) {

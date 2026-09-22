@@ -41,29 +41,6 @@ What this requires locally:
 - `claude`
 - `node`
 
-What it does **not** require:
-
-- `git clone`
-- `npm install`
-- `npm run build`
-- downloading a GitHub Release package first
-
-### Avoid duplicate MCP registrations
-
-Register `encoding-bridge` in only one scope. Claude Code treats the same server name with different commands as a configuration conflict—for example, an older user-scoped local build and this repository's project-scoped `.mcp.json` npm command.
-
-Run `claude mcp list` to diagnose duplicates. Keep the endpoint you want, then remove the other registration:
-
-```powershell
-# Keep the npm command from the user-scoped installation.
-claude mcp remove encoding-bridge -s project
-
-# Or keep a project-local configuration and remove a previous user installation.
-claude mcp remove encoding-bridge -s user
-```
-
-After removing a registration, run `claude mcp get encoding-bridge` again. It must report one endpoint with status `Connected`.
-
 ### Multi-root workspaces
 
 A single-folder workspace works with **zero configuration**: the MCP process

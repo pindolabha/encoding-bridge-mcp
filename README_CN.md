@@ -58,22 +58,6 @@ claude mcp get encoding-bridge
 
 安装脚本会自动把权限写进 `~/.claude/settings.json`：允许 MCP 工具，禁用内置 `Read` / `Grep` / `Edit` / `Write` / `NotebookEdit`。第一次打开混编码仓库时会在后台自动建立本机编码索引，无需任何手动配置。
 
-### 避免重复注册
-
-`encoding-bridge` 只能在一个配置范围内注册一次。若用户级旧配置仍指向本机构建、而项目 `.mcp.json` 又指向 npm 包，Claude Code 会把同名但命令不同的服务报告为冲突。
-
-用 `claude mcp list` 查看重复项，保留要使用的端点，再删除另一项：
-
-```powershell
-# 保留用户级 npm 安装时，删除项目级配置。
-claude mcp remove encoding-bridge -s project
-
-# 保留项目级配置时，删除旧的用户级安装。
-claude mcp remove encoding-bridge -s user
-```
-
-删除后重新运行 `claude mcp get encoding-bridge`。只有一个端点且状态为 `Connected` 才表示配置正确。
-
 ### 多根工作区（Multi-root workspace）
 
 **单文件夹工作区**开箱即用，**零配置**：MCP 进程的 `cwd`（VS Code 工作目录）就是索引根，该目录下的文件会自动读取并建立编码索引。
