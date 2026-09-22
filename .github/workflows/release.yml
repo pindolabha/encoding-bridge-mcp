@@ -61,7 +61,15 @@ jobs:
         run: npm pack --dry-run
 
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        # npm publish needs an npm account + Trusted Publisher setup the
+        # maintainer has not configured yet; skip it so the GitHub Release
+        # assets below are produced regardless. Set the NPM_TOKEN secret to
+        # enable publishing later.
+        if: env.NPM_TOKEN != ''
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        continue-on-error: true
 
   release-assets:
     needs: publish-npm
@@ -225,8 +233,10 @@ jobs:
 
             ### npm publish note
 
-            This workflow uses npm Trusted Publishing with GitHub OIDC.
-            No long-lived `NPM_TOKEN` is required for publishing.
+            npm publishing is disabled by default (no npm account / token
+            configured). The GitHub Release assets above are the supported
+            installation path and do not require npm. To enable npm publishing,
+            add a `NPM_TOKEN` repository secret and re-run the release.
 
             ### Important
 
