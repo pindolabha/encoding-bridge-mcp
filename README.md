@@ -34,7 +34,32 @@ claude mcp add --scope user encoding-bridge -- npx -y encoding-bridge-mcp
 claude mcp get encoding-bridge
 ```
 
-If `claude mcp get` reports `Connected`, installation succeeded. Start a **new** Claude Code session. Install scripts merge permissions automatically (MCP tools allowed, built-in file tools denied). The first Read/Grep in a mixed-encoding repo builds a local encoding index in the background.
+If `claude mcp get` reports `Connected`, installation succeeded. Start a **new** Claude Code session.
+
+### Allow the tools in a project
+
+Encoding Bridge uses **project-scoped** permissions: in each project you want it to
+handle, create or edit the project's `.claude/settings.json` so the MCP tools are
+allowed and the built-in file tools are denied:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__encoding-bridge__Read",
+      "mcp__encoding-bridge__Grep",
+      "mcp__encoding-bridge__Edit",
+      "mcp__encoding-bridge__Write"
+    ],
+    "deny": ["Read", "Grep", "Edit", "Write", "NotebookEdit"]
+  }
+}
+```
+
+This is deliberately project-scoped: it applies only in the project that owns that
+`.claude/settings.json`, and no user-level `~/.claude/settings.json` is modified.
+The first Read/Grep in a mixed-encoding repo builds a local encoding index in the
+background.
 
 What this requires locally:
 
@@ -96,7 +121,10 @@ Unicode from the LLM -> strict encode in the original encoding -> bytes on disk
 
 If new text cannot be represented in the target encoding, the write fails instead of silently replacing characters with `?`.
 
-Install scripts merge Claude Code permissions automatically. Start a **new** session after installing. The first file tool use in a project builds a local encoding index if one does not exist yet.
+Permissions are configured per project in the project's `.claude/settings.json` (see
+[Allow the tools in a project](#allow-the-tools-in-a-project)). Start a **new**
+session after installing. The first file tool use in a project builds a local
+encoding index if one does not exist yet.
 
 ---
 
@@ -144,7 +172,7 @@ It should **not** call built-in `Read`, `Grep`, `Edit`, or `Write`.
 
 - Encoding-aware `Read`, `Grep`, `Edit`, and `Write` tools.
 - Automatic encoding detection and a local index built on first use.
-- Install scripts deny built-in file tools and allow the MCP tools.
+- Per-project `permissions` in `.claude/settings.json` to allow the MCP tools and deny the built-in file tools.
 - GBK/GB2312/GB18030, Big5, Shift-JIS, EUC-KR, Windows codepages, UTF-8, and UTF-16 support.
 - BOM and dominant line-ending preservation for edits.
 - Read-before-write protection and stale-write detection.

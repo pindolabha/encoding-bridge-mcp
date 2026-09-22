@@ -240,9 +240,11 @@ jobs:
 
             ### Important
 
-            The install scripts merge Claude Code permissions automatically
-            (MCP tools allowed, built-in file tools denied). No manual
-            `.encoding-rules` file or `settings.json` edit is required.
+            Permissions are **project-scoped**. In each project you want Encoding
+            Bridge to handle, create/edit that project's `.claude/settings.json`
+            with the permissions block shown in the README ("Allow the tools in a
+            project") — MCP tools allowed, built-in file tools denied. No
+            user-level `~/.claude/settings.json` is modified.
 
             After installing, start a **new** Claude Code session. The first
             Read/Grep in a project builds a local encoding index in the

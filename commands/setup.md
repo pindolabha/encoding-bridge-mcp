@@ -10,5 +10,5 @@ Use this command after the plugin is installed.
 ## What to do
 
 1. Confirm the MCP is connected (`claude mcp get encoding-bridge`).
-2. Confirm install merged `~/.claude/settings.json` (MCP tools allowed, built-in Read/Grep/Edit/Write/NotebookEdit denied). If not, run `node install/apply-claude-settings.js`.
+2. Confirm the **project's** `.claude/settings.json` allows the MCP tools and denies built-in Read/Grep/Edit/Write/NotebookEdit. If not, have the user add the permissions block from the README (see "Allow the tools in a project").
 3. Tell the user to start a new Claude Code session. Encoding indexing runs automatically the first time a project is opened.

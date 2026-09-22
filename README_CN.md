@@ -56,7 +56,25 @@ claude mcp get encoding-bridge
 
 如果第二条命令显示 `Connected`，说明安装成功。请**新开**一个 Claude Code 会话后再用。
 
-安装脚本会自动把权限写进 `~/.claude/settings.json`：允许 MCP 工具，禁用内置 `Read` / `Grep` / `Edit` / `Write` / `NotebookEdit`。第一次打开混编码仓库时会在后台自动建立本机编码索引，无需任何手动配置。
+### 在项目里放行工具（项目级）
+
+Encoding Bridge 用的是**项目级**权限：在你想让它处理的每个项目里，创建或编辑该项目的 `.claude/settings.json`，允许 MCP 工具、禁用内置文件工具：
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__encoding-bridge__Read",
+      "mcp__encoding-bridge__Grep",
+      "mcp__encoding-bridge__Edit",
+      "mcp__encoding-bridge__Write"
+    ],
+    "deny": ["Read", "Grep", "Edit", "Write", "NotebookEdit"]
+  }
+}
+```
+
+这是刻意做成**项目级**的：只对拥有这份 `.claude/settings.json` 的项目生效，**不会改动用户级 `~/.claude/settings.json`**。第一次打开混编码仓库时会在后台自动建立本机编码索引，无需任何手动配置。
 
 ### 多根工作区（Multi-root workspace）
 
@@ -135,7 +153,7 @@ claude mcp get encoding-bridge
 
 ### 4. Claude 还是在用内置工具
 
-安装后请新开会话。权限由安装脚本写入 `~/.claude/settings.json`。
+安装后请新开会话。权限需要在**项目级** `.claude/settings.json` 里配置（见上方「在项目里放行工具（项目级）」），不会自动写入用户级 `~/.claude/settings.json`。
 
 ---
 
