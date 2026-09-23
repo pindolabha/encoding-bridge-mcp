@@ -58,7 +58,7 @@ export async function executeWrite(input: WriteInput): Promise<ToolResponse> {
   const readSnapshot = readRegistry.get(context.absolutePath)
   if (!readSnapshot) throw new Error('File has not been read. Read it before attempting to write it.')
   const current = await readDecodedFile(context)
-  if (current.hash !== readSnapshot.hash || current.mtimeMs !== readSnapshot.mtimeMs) {
+  if (current.mtimeMs !== readSnapshot.mtimeMs || current.size !== readSnapshot.size) {
     throw new Error('File has been unexpectedly modified. Read it again before attempting to write it.')
   }
 

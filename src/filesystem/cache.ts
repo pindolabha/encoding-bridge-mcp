@@ -18,6 +18,10 @@ export interface BufferReadState extends FileVersion {
 export interface ReadBufferOptions {
   offset?: number;
   length?: number;
+  /** Skip the full-file sha256. Safe for read-only paths that only need a change
+   * signature for "unchanged" checks; mtime+size are compared instead. Write
+   * paths that must guard against external mutation keep the hash. */
+  skipHash?: boolean;
 }
 
 function digest(buffer: Buffer): string {
@@ -45,7 +49,7 @@ export class FileStateCache {
       totalSize: buffer.length,
       mtimeMs: info.mtimeMs,
       size: buffer.length,
-      hash: digest(buffer),
+      hash: options.skipHash ? "" : digest(buffer),
     };
   }
 }

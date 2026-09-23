@@ -151,7 +151,8 @@ export async function executeEdit(input: EditInput): Promise<ToolResponse> {
   const selectedMatches = input.replace_all ? matches : matches.slice(0, 1)
   const authorization = readRegistry.authorizeEdit(
     context.absolutePath,
-    current.hash,
+    current.mtimeMs,
+    current.size,
     selectedMatches.map(match => lineRangeForMatch(current.text, match)),
   )
   if (authorization.status === 'unread') {

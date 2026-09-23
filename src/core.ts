@@ -168,7 +168,11 @@ export async function readDecodedRange(
   startLine: number,
   limit?: number,
 ): Promise<ReadRangeSnapshot> {
-  const state = await fileStateCache.read(context.root, context.absolutePath)
+  // Read-only path: skip the full-file sha256. mtime+size from the index are
+  // enough for "unchanged" checks here; only Edit/Write keep the hash for
+  // external-mutation protection. This is the hot Read path, so the 20ms+ hash
+  // cost on large files is avoided.
+  const state = await fileStateCache.read(context.root, context.absolutePath, { skipHash: true })
   const encoding = await resolveFileEncoding(context.root, context.absolutePath, state)
   // readFileRange uses 0-based line offsets (like Claude's readFileInRange);
   // startLine here is 1-based.
@@ -199,6 +203,7 @@ export async function readDecodedRange(
 interface ReadCoverage {
   hash: string
   mtimeMs: number
+  size: number
   totalLines: number
   intervals: Array<{ start: number; end: number }>
 }
@@ -230,9 +235,9 @@ function mergeIntervals(
 }
 
 export class ReadRegistry {
-  private readonly snapshots = new Map<string, Pick<ReadSnapshot, 'mtimeMs' | 'hash'>>()
+  private readonly snapshots = new Map<string, Pick<ReadSnapshot, 'mtimeMs' | 'size'>>()
   private readonly coverage = new Map<string, ReadCoverage>()
-  private readonly ranges = new Map<string, { mtimeMs: number; hash: string; offset?: number; limit?: number }>()
+  private readonly ranges = new Map<string, { mtimeMs: number; size: number; hash: string; offset?: number; limit?: number }>()
 
   private evictIfNeeded(): void {
     while (this.coverage.size >= MAX_REGISTRY_ENTRIES) {
@@ -260,7 +265,7 @@ export class ReadRegistry {
     }
   }
 
-  get(filePath: string): Pick<ReadSnapshot, 'mtimeMs' | 'hash'> | undefined {
+  get(filePath: string): Pick<ReadSnapshot, 'mtimeMs' | 'size'> | undefined {
     const absolutePath = path.resolve(filePath)
     const snapshot = this.snapshots.get(absolutePath)
     if (snapshot !== undefined) this.touch(absolutePath)
@@ -302,13 +307,15 @@ export class ReadRegistry {
     this.coverage.set(key, {
       hash: remembered.hash,
       mtimeMs: remembered.mtimeMs,
+      size: remembered.size,
       totalLines: range.totalLines,
       intervals: merged,
     })
-    if (complete) this.snapshots.set(key, { mtimeMs: remembered.mtimeMs, hash: remembered.hash })
+    if (complete) this.snapshots.set(key, { mtimeMs: remembered.mtimeMs, size: remembered.size })
     else this.snapshots.delete(key)
     this.ranges.set(key, {
       mtimeMs: snapshot.mtimeMs,
+      size: snapshot.size,
       hash: snapshot.hash,
       ...(snapshot.offset === undefined ? {} : { offset: snapshot.offset }),
       ...(snapshot.limit === undefined ? {} : { limit: snapshot.limit }),
@@ -317,7 +324,8 @@ export class ReadRegistry {
 
   authorizeEdit(
     filePath: string,
-    currentHash: string,
+    currentMtimeMs: number,
+    currentSize: number,
     requiredRanges: Array<{ startLine: number; endLine: number }>,
   ):
     | { status: 'authorized' }
@@ -326,7 +334,10 @@ export class ReadRegistry {
     | { status: 'uncovered'; missing: Array<{ startLine: number; endLine: number }> } {
     const entry = this.coverage.get(path.resolve(filePath))
     if (!entry) return { status: 'unread' }
-    if (entry.hash !== currentHash) return { status: 'changed' }
+    // Compare mtime+size (like Claude's built-in tools) instead of a full-file
+    // sha256. Reads skip the hash for speed; a changed mtime/size means the file
+    // was touched externally since it was read.
+    if (entry.mtimeMs !== currentMtimeMs || entry.size !== currentSize) return { status: 'changed' }
     const missing = requiredRanges.filter(required => !entry.intervals.some(
       interval => interval.start <= required.startLine && interval.end >= required.endLine,
     ))
@@ -337,22 +348,26 @@ export class ReadRegistry {
     const absolutePath = path.resolve(filePath)
     const previous = this.ranges.get(absolutePath)
     if (!previous || previous.offset !== offset || previous.limit !== limit) return false
-    const current = await fileStateCache.read(root, absolutePath)
-    return current.mtimeMs === previous.mtimeMs && current.hash === previous.hash
+    // Compare mtime+size instead of a full-file sha256 — same safety for the
+    // "file unchanged, reuse prior content" short-circuit, but cheap on large
+    // files (no full read + hash on every Read).
+    const current = await fileStateCache.read(root, absolutePath, { skipHash: true })
+    return current.mtimeMs === previous.mtimeMs && current.size === previous.size
   }
 
   updateAfterWrite(snapshot: ReadSnapshot, text: string, buffer: Buffer, mtimeMs: number): void {
     const hash = digest(buffer)
     const totalLines = text.split('\n').length
     this.evictIfNeeded()
-    this.snapshots.set(snapshot.absolutePath, { mtimeMs, hash })
+    this.snapshots.set(snapshot.absolutePath, { mtimeMs, size: buffer.length })
     this.coverage.set(snapshot.absolutePath, {
       hash,
       mtimeMs,
+      size: buffer.length,
       totalLines,
       intervals: [{ start: 1, end: totalLines }],
     })
-    this.ranges.set(snapshot.absolutePath, { mtimeMs, hash })
+    this.ranges.set(snapshot.absolutePath, { mtimeMs, size: buffer.length, hash })
   }
 }
 export const readRegistry = new ReadRegistry()

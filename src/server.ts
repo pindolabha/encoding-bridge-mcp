@@ -30,6 +30,8 @@ import { executeEdit, parseEditInput } from './tools/edit.js'
 import { executeGrep, parseGrepInput } from './tools/grep.js'
 import { executeRead, parseReadInput } from './tools/read.js'
 import { executeWrite, parseWriteInput } from './tools/write.js'
+import { configuredRoots } from './core.js'
+import { ensureProjectIndex } from './encoding/ensureIndex.js'
 import type { ToolResponse } from './toolTypes.js'
 
 export const toolDefinitions = [
@@ -112,6 +114,14 @@ export function createServer(): Server {
 export async function main(): Promise<void> {
   const server = createServer()
   const transport = new StdioServerTransport()
+  // Ensure every configured root (cwd + ENCODING_BRIDGE_ROOTS) has its encoding
+  // index built and its watcher running, not just roots whose files have been
+  // accessed already. Each root is scanned only if its index is missing; roots
+  // with an index just start a watcher. Fire-and-forget so server startup is not
+  // blocked by a large initial scan.
+  for (const root of configuredRoots()) {
+    ensureProjectIndex(root)
+  }
   let closing = false
   const close = async (): Promise<void> => {
     if (closing) return
