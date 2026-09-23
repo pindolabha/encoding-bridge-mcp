@@ -46,15 +46,65 @@ function lineRangeForMatch(content: string, match: QuoteMatch): { startLine: num
   return { startLine, endLine }
 }
 
-function findQuoteMatches(content: string, search: string): QuoteMatch[] {
-  const matches: QuoteMatch[] = []
-  const normalizedSearch = normalizeQuotes(search)
-  for (let index = 0; index <= content.length - search.length; index += 1) {
-    const candidate = content.slice(index, index + search.length)
-    if (normalizeQuotes(candidate) === normalizedSearch) {
-      matches.push({ index, actual: candidate })
-      index += Math.max(0, search.length - 1)
+/**
+ * Whitespace- and quote-insensitive matching, mirroring how the built-in Edit
+ * tolerates quote differences but extending it to alignment whitespace.
+ *
+ * The core problem: tabs used to align trailing `//` comments are invisible, so
+ * a model copying a Read/Grep line to build an `old_string` frequently miscounts
+ * them, producing `old_string not found`. Here we match by comparing a normalized
+ * form (leading whitespace dropped, runs of whitespace collapsed to one space,
+ * curly quotes folded to straight) and then resolve the normalized hit back to
+ * the exact original byte range so the replacement is applied to the real text.
+ *
+ * `normalizeWithMap` returns the normalized text plus a per-character map back to
+ * the original offsets. Leading whitespace on a line is skipped entirely (not
+ * mapped), so a search string that omits or varies indentation still lines up.
+ */
+interface CharMap {
+  start: number
+  end: number
+}
+
+function normalizeWithMap(text: string): { norm: string; map: CharMap[] } {
+  const norm: string[] = []
+  const map: CharMap[] = []
+  const atLineStart = (): boolean => norm.length === 0 || norm[norm.length - 1] === '\n'
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!
+    if (ch === ' ' || ch === '\t') {
+      if (atLineStart()) continue
+      if (norm.length > 0 && norm[norm.length - 1] === ' ') {
+        map[map.length - 1]!.end = i + 1
+        continue
+      }
+      norm.push(' ')
+      map.push({ start: i, end: i + 1 })
+    } else {
+      const folded = SMART_QUOTES.get(ch) ?? ch
+      norm.push(folded)
+      map.push({ start: i, end: i + 1 })
     }
+  }
+  return { norm: norm.join(''), map }
+}
+
+function findQuoteMatches(content: string, search: string): QuoteMatch[] {
+  const { norm: normContent, map } = normalizeWithMap(content)
+  const normSearch = normalizeWithMap(search).norm
+  if (normSearch.length === 0) return []
+  const matches: QuoteMatch[] = []
+  let index = normContent.indexOf(normSearch)
+  while (index !== -1) {
+    const startEntry = map[index]
+    const endEntry = map[index + normSearch.length - 1]
+    if (startEntry !== undefined && endEntry !== undefined) {
+      matches.push({
+        index: startEntry.start,
+        actual: content.slice(startEntry.start, endEntry.end),
+      })
+    }
+    index = normContent.indexOf(normSearch, index + 1)
   }
   return matches
 }

@@ -149,6 +149,35 @@ describe('encoding-transparent text tools', () => {
     expect(iconv.decode(await readFile(file), 'gbk')).toContain('修改')
   })
 
+  it('matches old_string despite alignment-tab differences', async () => {
+    const root = await project()
+    const file = path.join(root, 'tab-align.txt')
+    // File uses tabs to align the trailing comment; the old_string below uses
+    // a single space (a model miscounting the tabs would write this).
+    await writeFile(file, 'void AddHuang2AllCorpScore(DWord dwScore);\t\t\t// 增加皇城战2所有军团军勋\nprivate:\n', 'utf8')
+    await executeRead({ file_path: file })
+    await executeEdit({
+      file_path: file,
+      old_string: 'void AddHuang2AllCorpScore(DWord dwScore); // 增加皇城战2所有军团军勋\nprivate:',
+      new_string: 'void AddHuang2AllCorpScore(DWord dwScore);\t\t\t// 增加皇城战2所有军团军勋\n\tbool IsHuang2CityBelongJun(DWord dwCityID); // 城池是否属于郡线（太守线）\nprivate:',
+    })
+    const text = await readFile(file, 'utf8')
+    expect(text).toContain('bool IsHuang2CityBelongJun(DWord dwCityID);')
+    expect(text).toContain('// 城池是否属于郡线（太守线）')
+  })
+
+  it('rejects an edit whose old_string is ambiguous across whitespace variants', async () => {
+    const root = await project()
+    const file = path.join(root, 'tab-ambig.txt')
+    // Two occurrences with identical normalized text (same content, only the
+    // alignment whitespace differs). The old_string normalizes to both, so
+    // without replace_all it must be rejected as ambiguous.
+    await writeFile(file, 'A;\t\t// 甲\nA;\t// 甲\n', 'utf8')
+    await executeRead({ file_path: file })
+    await expect(executeEdit({ file_path: file, old_string: 'A; // 甲', new_string: 'B; // 甲' }))
+      .rejects.toThrow(/more surrounding context/)
+  })
+
   it('rejects stale writes after an external modification', async () => {
     const root = await project()
     const file = path.join(root, 'stale.txt')
