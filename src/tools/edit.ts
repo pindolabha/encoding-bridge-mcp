@@ -69,11 +69,20 @@ interface CharMap {
 function normalizeWithMap(text: string): { norm: string; map: CharMap[] } {
   const norm: string[] = []
   const map: CharMap[] = []
-  const atLineStart = (): boolean => norm.length === 0 || norm[norm.length - 1] === '\n'
+  // `leading` is true while the current character is part of the line's leading
+  // indentation (from the start of the line up to the first non-whitespace).
+  // Leading indentation is code structure and must match exactly; only inline
+  // alignment whitespace (e.g. the tabs before a trailing comment) is collapsed,
+  // so an edit cannot silently re-indent a block.
+  let leading = true
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i]!
     if (ch === ' ' || ch === '\t') {
-      if (atLineStart()) continue
+      if (leading) {
+        norm.push(ch)
+        map.push({ start: i, end: i + 1 })
+        continue
+      }
       if (norm.length > 0 && norm[norm.length - 1] === ' ') {
         map[map.length - 1]!.end = i + 1
         continue
@@ -81,12 +90,39 @@ function normalizeWithMap(text: string): { norm: string; map: CharMap[] } {
       norm.push(' ')
       map.push({ start: i, end: i + 1 })
     } else {
+      if (ch === '\n') leading = true
+      else leading = false
       const folded = SMART_QUOTES.get(ch) ?? ch
       norm.push(folded)
       map.push({ start: i, end: i + 1 })
     }
   }
   return { norm: norm.join(''), map }
+}
+
+function leadingWhitespace(line: string): string {
+  const match = line.match(/^[ \t]*/)
+  return match?.[0] ?? ''
+}
+
+/**
+ * Require the leading indentation of every line in the candidate match to be
+ * byte-for-byte identical to the corresponding line of the search string.
+ * Normalized matching collapses *inline* alignment whitespace, but leading
+ * indentation is code structure: if a 4-space old_string matched a 16-space
+ * file line we'd silently re-indent the block on write. Rejecting those keeps
+ * the edit safe while still tolerating inline tab/space differences.
+ */
+function sameLeadingIndent(actual: string, requested: string): boolean {
+  const actualLines = actual.split('\n')
+  const requestedLines = requested.split('\n')
+  const count = Math.min(actualLines.length, requestedLines.length)
+  for (let i = 0; i < count; i += 1) {
+    if (leadingWhitespace(actualLines[i] ?? '') !== leadingWhitespace(requestedLines[i] ?? '')) {
+      return false
+    }
+  }
+  return true
 }
 
 function findQuoteMatches(content: string, search: string): QuoteMatch[] {
@@ -99,10 +135,13 @@ function findQuoteMatches(content: string, search: string): QuoteMatch[] {
     const startEntry = map[index]
     const endEntry = map[index + normSearch.length - 1]
     if (startEntry !== undefined && endEntry !== undefined) {
-      matches.push({
-        index: startEntry.start,
-        actual: content.slice(startEntry.start, endEntry.end),
-      })
+      const actual = content.slice(startEntry.start, endEntry.end)
+      if (sameLeadingIndent(actual, search)) {
+        matches.push({
+          index: startEntry.start,
+          actual,
+        })
+      }
     }
     index = normContent.indexOf(normSearch, index + 1)
   }
@@ -110,12 +149,22 @@ function findQuoteMatches(content: string, search: string): QuoteMatch[] {
 }
 
 function adaptReplacementQuotes(replacement: string, actual: string, requested: string): string {
+  // Map quote style on the *normalized* character stream, not the raw byte
+  // offsets. Under whitespace-insensitive matching the raw `actual` (original
+  // text, with its real alignment tabs) and `requested` (the model's old_string,
+  // whose whitespace may differ) no longer line up positionally, so a naive
+  // index-based comparison would mis-map quotes and corrupt the new_string.
+  const normActual = normalizeWithMap(actual)
+  const normRequested = normalizeWithMap(requested).norm
+  if (normActual.norm.length !== normRequested.length) return replacement
   const style = new Map<string, string>()
-  for (let index = 0; index < Math.min(actual.length, requested.length); index += 1) {
-    const normalized = normalizeQuotes(requested[index] ?? '')
-    const actualCharacter = actual[index]
-    if ((normalized === "'" || normalized === '"') && actualCharacter) {
-      style.set(normalized, actualCharacter)
+  for (let index = 0; index < normActual.norm.length; index += 1) {
+    const requestedChar = normRequested[index]!
+    const actualChar = normActual.norm[index]!
+    if ((requestedChar === "'" || requestedChar === '"') && actualChar === requestedChar) {
+      const span = normActual.map[index]!
+      const actualOrig = actual.slice(span.start, span.end)
+      if (actualOrig.length === 1) style.set(requestedChar, actualOrig)
     }
   }
   return [...replacement].map(character => style.get(normalizeQuotes(character)) ?? character).join('')

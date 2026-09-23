@@ -55,9 +55,9 @@ export function formatFileChangeMessage(
   verb: 'updated' | 'created',
   hunks = createStructuredPatch(filePath, before, after),
 ): string {
+  const fileHeader = `File: ${filePath}`
   if (verb === 'created') {
-    const header = `File created successfully at: ${filePath}`
-    return hunks.length === 0 ? header : `${header}\n\n\`\`\`diff\n${formatUnifiedDiff(filePath, hunks)}\n\`\`\``
+    return hunks.length === 0 ? fileHeader : `${fileHeader}\n\n\`\`\`diff\n${formatUnifiedDiff(filePath, hunks)}\n\`\`\``
   }
   if (hunks.length === 0) return `The file ${filePath} has been updated successfully.`
   const preview = formatChangePreview(hunks)
@@ -65,5 +65,5 @@ export function formatFileChangeMessage(
     ? `\`\`\`diff\n${preview.join('\n')}\n\`\`\``
     : ''
   const fullDiff = `\`\`\`diff\n${formatUnifiedDiff(filePath, hunks)}\n\`\`\``
-  return previewBlock ? `${previewBlock}\n\n${fullDiff}` : fullDiff
+  return previewBlock ? `${fileHeader}\n${previewBlock}\n\n${fullDiff}` : `${fileHeader}\n${fullDiff}`
 }
