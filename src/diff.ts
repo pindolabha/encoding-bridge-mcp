@@ -31,6 +31,23 @@ export function formatUnifiedDiff(filePath: string, hunks: PatchHunk[]): string 
   return lines.join('\n')
 }
 
+/**
+ * Summarize the changed lines (removed `-` and added `+`) into a compact
+ * "what changed" preview, omitting hunk headers and context lines so the
+ * change is obvious even when the full diff is collapsed.
+ */
+export function formatChangePreview(hunks: PatchHunk[]): string[] {
+  const preview: string[] = []
+  for (const hunk of hunks) {
+    for (const line of hunk.lines) {
+      if (line.startsWith('+') || line.startsWith('-')) {
+        preview.push(line)
+      }
+    }
+  }
+  return preview
+}
+
 export function formatFileChangeMessage(
   filePath: string,
   before: string,
@@ -38,9 +55,15 @@ export function formatFileChangeMessage(
   verb: 'updated' | 'created',
   hunks = createStructuredPatch(filePath, before, after),
 ): string {
-  const header = verb === 'created'
-    ? `File created successfully at: ${filePath}`
-    : `The file ${filePath} has been updated successfully.`
+  if (verb === 'created') {
+    const header = `File created successfully at: ${filePath}`
+    return hunks.length === 0 ? header : `${header}\n\n\`\`\`diff\n${formatUnifiedDiff(filePath, hunks)}\n\`\`\``
+  }
+  const header = `The file ${filePath} has been updated successfully.`
   if (hunks.length === 0) return header
-  return `${header}\n\n\`\`\`diff\n${formatUnifiedDiff(filePath, hunks)}\n\`\`\``
+  const preview = formatChangePreview(hunks)
+  const previewBlock = preview.length > 0
+    ? `\n\nChanges:\n\`\`\`diff\n${preview.join('\n')}\n\`\`\``
+    : ''
+  return `${header}${previewBlock}\n\n\`\`\`diff\n${formatUnifiedDiff(filePath, hunks)}\n\`\`\``
 }

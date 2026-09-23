@@ -327,6 +327,7 @@ export class ReadRegistry {
     currentMtimeMs: number,
     currentSize: number,
     requiredRanges: Array<{ startLine: number; endLine: number }>,
+    indexedKnown: boolean,
   ):
     | { status: 'authorized' }
     | { status: 'unread' }
@@ -338,6 +339,10 @@ export class ReadRegistry {
     // sha256. Reads skip the hash for speed; a changed mtime/size means the file
     // was touched externally since it was read.
     if (entry.mtimeMs !== currentMtimeMs || entry.size !== currentSize) return { status: 'changed' }
+    // A file whose encoding is recorded in the index is "known" and behaves like
+    // the built-in tools: the target range need not have been read first. Only
+    // unrecorded (unknown-encoding) files keep the strict read-before-edit rule.
+    if (indexedKnown) return { status: 'authorized' }
     const missing = requiredRanges.filter(required => !entry.intervals.some(
       interval => interval.start <= required.startLine && interval.end >= required.endLine,
     ))

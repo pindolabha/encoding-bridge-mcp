@@ -1,7 +1,7 @@
 import { mkdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 
-import { encodeText, rememberIndexedEncoding } from '../encoding/index.js'
+import { encodeText, hasIndexedEncoding, rememberIndexedEncoding } from '../encoding/index.js'
 import { getProjectFileContext, encodeSnapshotText, readDecodedFile, readRegistry } from '../core.js'
 import { createStructuredPatch, formatFileChangeMessage } from '../diff.js'
 import { atomicWriteBuffer } from '../filesystem/index.js'
@@ -56,9 +56,16 @@ export async function executeWrite(input: WriteInput): Promise<ToolResponse> {
   }
 
   const readSnapshot = readRegistry.get(context.absolutePath)
-  if (!readSnapshot) throw new Error('File has not been read. Read it before attempting to write it.')
+  // A file whose encoding is recorded in the index is "known" and, like the
+  // built-in tools, does not require a prior Read. Only unknown-encoding files
+  // keep the strict read-before-write rule.
+  const indexedKnown = await hasIndexedEncoding(context.root, context.absolutePath)
+  if (!readSnapshot && !indexedKnown) throw new Error('File has not been read. Read it before attempting to write it.')
   const current = await readDecodedFile(context)
-  if (current.mtimeMs !== readSnapshot.mtimeMs || current.size !== readSnapshot.size) {
+  // When the encoding is index-known there is no prior snapshot to compare
+  // against, so the mtime/size stale check is skipped (matching the built-in
+  // tools). For a previously-read file, an external change still refuses.
+  if (readSnapshot !== undefined && (current.mtimeMs !== readSnapshot.mtimeMs || current.size !== readSnapshot.size)) {
     throw new Error('File has been unexpectedly modified. Read it again before attempting to write it.')
   }
 

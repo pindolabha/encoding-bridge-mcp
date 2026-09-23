@@ -141,6 +141,19 @@ export async function listIndexedEncodings(root: string): Promise<Map<string, In
   return new Map(loaded.files)
 }
 
+/**
+ * Whether the index holds an encoding record for the given file, regardless of
+ * whether the record's mtime/size still matches. This is distinct from
+ * `lookupIndexedEncoding`, which only returns a value when the record is fresh.
+ * A file with a record (even a stale one) is "known" and does not need to be
+ * read before an edit; an unrecorded file is unknown and must be read first.
+ */
+export async function hasIndexedEncoding(root: string, filePath: string): Promise<boolean> {
+  const loaded = getLoaded(root)
+  await loaded.load
+  return loaded.files.has(toRelative(root, filePath))
+}
+
 export async function flushEncodingIndex(root?: string): Promise<void> {
   if (root !== undefined) {
     const loaded = indexes.get(root)

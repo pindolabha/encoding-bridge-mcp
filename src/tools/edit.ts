@@ -1,7 +1,7 @@
 import { mkdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 
-import { encodeText, rememberIndexedEncoding } from '../encoding/index.js'
+import { encodeText, hasIndexedEncoding, rememberIndexedEncoding } from '../encoding/index.js'
 import { getProjectFileContext, encodeSnapshotText, readDecodedFile, readRegistry } from '../core.js'
 import { createStructuredPatch, formatFileChangeMessage } from '../diff.js'
 import { atomicWriteBuffer } from '../filesystem/index.js'
@@ -149,11 +149,13 @@ export async function executeEdit(input: EditInput): Promise<ToolResponse> {
     throw new Error(`Found ${matches.length} matches of old_string. Provide more surrounding context or set replace_all to true.`)
   }
   const selectedMatches = input.replace_all ? matches : matches.slice(0, 1)
+  const indexedKnown = await hasIndexedEncoding(context.root, context.absolutePath)
   const authorization = readRegistry.authorizeEdit(
     context.absolutePath,
     current.mtimeMs,
     current.size,
     selectedMatches.map(match => lineRangeForMatch(current.text, match)),
+    indexedKnown,
   )
   if (authorization.status === 'unread') {
     throw new Error('File has not been read. Read the target lines before attempting to edit them.')

@@ -75,35 +75,30 @@ describe('encoding-transparent text tools', () => {
     expect(iconv.decode(await readFile(file), 'gbk')).toContain('UPDATED_TARGET')
   })
 
-  it('rejects a large-file edit when the target line was not displayed', async () => {
+  it('edits a large file without reading the target line once the encoding is indexed', async () => {
     const root = await project()
     const file = path.join(root, 'unread-target.txt')
     await writeFile(file, iconv.encode('one\ntwo\nTARGET\nfour', 'gbk'))
+    // Reading any range records the encoding in the index; after that the file
+    // is "known" and edits behave like the built-in tools (no read requirement).
     await executeRead({ file_path: file, offset: 1, limit: 2 })
-    await expect(executeEdit({ file_path: file, old_string: 'TARGET', new_string: 'updated' }))
-      .rejects.toThrow(/Read line range\(s\) 3/)
+    await executeEdit({ file_path: file, old_string: 'TARGET', new_string: 'updated' })
+    expect(iconv.decode(await readFile(file), 'gbk')).toBe('one\ntwo\nupdated\nfour')
   })
 
-  it('requires every replace-all target range to be read', async () => {
+  it('edits every replace-all target once the encoding is indexed', async () => {
     const root = await project()
     const file = path.join(root, 'replace-all-ranges.txt')
     await writeFile(file, iconv.encode('MARK\nother\nMARK', 'gbk'))
     await executeRead({ file_path: file, offset: 1, limit: 1 })
-    await expect(executeEdit({ file_path: file, old_string: 'MARK', new_string: 'DONE', replace_all: true }))
-      .rejects.toThrow(/Read line range\(s\) 3/)
-    await executeRead({ file_path: file, offset: 3, limit: 1 })
     await executeEdit({ file_path: file, old_string: 'MARK', new_string: 'DONE', replace_all: true })
     expect(iconv.decode(await readFile(file), 'gbk')).toBe('DONE\nother\nDONE')
   })
-  it('allows editing after sequential ranges cover the complete file', async () => {
+  it('edits a file after a partial read once the encoding is indexed', async () => {
     const root = await project()
     const file = path.join(root, 'segmented.txt')
     await writeFile(file, iconv.encode('line1\nline2\nline3\nline4\nline5', 'gbk'))
     await executeRead({ file_path: file, offset: 1, limit: 2 })
-    await executeRead({ file_path: file, offset: 3, limit: 2 })
-    await expect(executeEdit({ file_path: file, old_string: 'line5', new_string: 'updated' }))
-      .rejects.toThrow(/Read line range\(s\) 5/)
-    await executeRead({ file_path: file, offset: 5, limit: 2 })
     await executeEdit({ file_path: file, old_string: 'line5', new_string: 'updated' })
     expect(iconv.decode(await readFile(file), 'gbk')).toContain('updated')
   })
@@ -132,16 +127,18 @@ describe('encoding-transparent text tools', () => {
     expect(iconv.decode(await readFile(file), 'gbk')).toContain('F')
   })
 
-  it('invalidates accumulated ranges when the file version changes', async () => {
+  it('edits after re-reading a file that changed externally', async () => {
     const root = await project()
     const file = path.join(root, 'versioned-ranges.txt')
     await writeFile(file, iconv.encode('a\nb\nc\nd', 'gbk'))
     await executeRead({ file_path: file, offset: 1, limit: 2 })
     await writeFile(file, iconv.encode('x\ny\nz\nw', 'gbk'))
     fileStateCache.clear()
+    // Re-reading the changed file records the new version; with the encoding
+    // indexed, an edit then succeeds like the built-in tools.
     await executeRead({ file_path: file, offset: 3, limit: 2 })
-    await expect(executeEdit({ file_path: file, old_string: 'x', new_string: 'X' }))
-      .rejects.toThrow(/Read line range\(s\) 1/)
+    await executeEdit({ file_path: file, old_string: 'x', new_string: 'X' })
+    expect(iconv.decode(await readFile(file), 'gbk')).toBe('X\ny\nz\nw')
   })
   it('allows editing a target that was included in a partial read', async () => {
     const root = await project()
