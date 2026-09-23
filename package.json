@@ -1,6 +1,6 @@
 {
   "name": "encoding-bridge-mcp",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Encoding-transparent MCP file tools for Claude Code",
   "license": "MIT",
   "type": "module",
