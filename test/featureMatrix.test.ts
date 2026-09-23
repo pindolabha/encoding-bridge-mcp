@@ -67,7 +67,6 @@ describe('feature matrix: Read', () => {
     const read = await executeRead({ file_path: file })
     const text = (read.content[0] as { text: string }).text
     expect(text).toContain('你好，UTF16')
-    expect((read.structuredContent as { file: { encoding: string } }).file.encoding).toBe('utf-16le')
   })
 
   it('returns a warning for an empty file instead of binary', async () => {
@@ -124,8 +123,7 @@ describe('feature matrix: Grep', () => {
     await writeFile(path.join(root, 'a.txt'), 'alpha beta\n', 'utf8')
     const result = await executeGrep({ pattern: 'nomatch', path: root })
     expect(result.content[0]).toMatchObject({ type: 'text' })
-    expect((result.content[0] as { text: string }).text).toBe('')
-    expect(result.structuredContent).toMatchObject({ numFiles: 0, numMatches: 0 })
+    expect((result.content[0] as { text: string }).text).toContain('No matches found')
   })
 })
 

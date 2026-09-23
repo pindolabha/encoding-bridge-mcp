@@ -36,7 +36,6 @@ describe('ripgrep Grep', () => {
   it('finds ASCII in both GBK and UTF-8 files without grouping', async () => {
     const root = await fixture()
     const result = await executeGrep({ pattern: 'ERROR', path: root })
-    expect(result.structuredContent).toMatchObject({ engine: 'ripgrep', groups: 1 })
     expect((result.content[0] as { text: string }).text).toContain('note.md')
   })
 
@@ -47,13 +46,14 @@ describe('ripgrep Grep', () => {
     expect(text).toContain('错误：连接失败')
     expect(text).toContain('错误：超时')
     expect(text).toContain('错误 also here')
-    expect((result.structuredContent as { groups: number }).groups).toBeGreaterThanOrEqual(2)
   })
 
   it('supports files, count, glob, and case-insensitive modes', async () => {
     const root = await fixture()
     const files = await executeGrep({ pattern: '错误', path: root, glob: '**/*.txt' })
-    expect((files.content[0] as { text: string }).text.split('\n').filter(Boolean)).toHaveLength(2)
+    const fileLines = (files.content[0] as { text: string }).text.split('\n').filter(line => /\.txt$/.test(line))
+    expect(fileLines).toHaveLength(2)
+    expect((files.content[0] as { text: string }).text).toMatch(/Matches:/)
     const counts = await executeGrep({ pattern: '错误', path: root, output_mode: 'count' })
     expect((counts.content[0] as { text: string }).text).toMatch(/:\d+/)
     const insensitive = await executeGrep({ pattern: 'error', path: root, glob: '**/*.md', '-i': true })

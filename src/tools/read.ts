@@ -75,7 +75,6 @@ export async function executeRead(input: ReadInput): Promise<ToolResponse> {
         type: 'text',
         text: 'File unchanged since last read. The content from the earlier Read tool_result in this conversation is still current — refer to that instead of re-reading.',
       }],
-      structuredContent: { type: 'file_unchanged', file: { filePath: context.absolutePath } },
     }
   }
 
@@ -152,18 +151,12 @@ export async function executeRead(input: ReadInput): Promise<ToolResponse> {
     return { content: notebookContent(selectedText) }
   }
 
+  const header = `File: ${context.absolutePath} (${snapshot.totalLines} lines${offset > 1 ? `, lines ${offset}-${offset + selectedLines.length - 1}` : ''})`
+  const body = lineNumber(selectedText, offset)
   return {
-    content: [{ type: 'text', text: lineNumber(selectedText, offset) }],
-    structuredContent: {
+    content: [{
       type: 'text',
-      file: {
-        filePath: context.absolutePath,
-        content: selectedText,
-        numLines: selectedLines.length,
-        startLine: offset,
-        totalLines: snapshot.totalLines,
-        encoding: snapshot.encoding,
-      },
-    },
+      text: `${header}\n${body}`,
+    }],
   }
 }

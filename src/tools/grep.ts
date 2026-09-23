@@ -268,23 +268,30 @@ export async function executeGrep(input: GrepInput): Promise<ToolResponse> {
       : { numFiles: contentFileCount(lines), numMatches: lines.length }
   const notices: string[] = []
   if (truncated) notices.push(`Showing results with pagination = limit: ${limit}, offset: ${offset}; output is capped for server stability`)
-  const suffix = notices.length === 0 ? '' : `${entries.length > 0 ? '\n\n' : ''}[${notices.join('] [')}]`
+  const suffix = notices.length === 0 ? '' : `\n\n[${notices.join('] [')}]`
+  const body = entries.join('\n')
+  if (body.length === 0) {
+    return { content: [{ type: 'text', text: `No matches found for \`${input.pattern}\`.${suffix}` }] }
+  }
+  const files = new Set<string>()
+  for (const line of entries) {
+    const match = line.match(/^(.*?)[:\-]\d+[:\-]/) ?? line.match(/^(.*?):/)
+    files.add(match?.[1] ?? line)
+  }
+  const headerLines = [
+    `Pattern: \`${input.pattern}\``,
+    `Matches: ${counts.numMatches} across ${counts.numFiles} file${counts.numFiles === 1 ? '' : 's'}`,
+  ]
+  // files_with_matches returns the file paths themselves as the body, so a
+  // separate file list would repeat them; only content/count modes add one.
+  if (mode !== 'files_with_matches') {
+    headerLines.push(`Files (${files.size}):`, ...[...files].map(file => `  - ${file}`))
+  }
+  const header = headerLines.join('\n')
   return {
-    content: [{ type: 'text', text: `${entries.join('\n')}${suffix}` }],
-    structuredContent: {
-      mode,
-      scanMode,
-      engine: 'ripgrep',
-      groups: usedRipgrepGroups,
-      numFiles: counts.numFiles,
-      numMatches: counts.numMatches,
-      entries,
-      scanComplete: true,
-      countsExact: true,
-      outputTruncated: truncated,
-      scannedFiles: lines.length,
-      skippedFiles: 0,
-      elapsedMs: Date.now() - startedAt,
-    },
+    content: [{
+      type: 'text',
+      text: `${header}\n\n${body}${suffix}`,
+    }],
   }
 }
