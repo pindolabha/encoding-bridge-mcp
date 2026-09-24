@@ -36,16 +36,32 @@ export function formatUnifiedDiff(filePath: string, hunks: PatchHunk[]): string 
  * "what changed" preview, omitting hunk headers and context lines so the
  * change is obvious even when the full diff is collapsed.
  */
-export function formatChangePreview(hunks: PatchHunk[]): string[] {
-  const preview: string[] = []
+/**
+ * Render the changed lines as plain numbered lines (like Read) instead of a
+ * ```diff fence, so Claude Code's collapsed preview shows them inline without
+ * needing to expand the diff block. Removed lines use the old line number,
+ * added lines the new line number, exactly as in a unified diff.
+ */
+export function formatChangePreviewLines(hunks: PatchHunk[]): string {
+  const lines: string[] = []
   for (const hunk of hunks) {
+    let oldLine = hunk.oldStart
+    let newLine = hunk.newStart
     for (const line of hunk.lines) {
-      if (line.startsWith('+') || line.startsWith('-')) {
-        preview.push(line)
+      if (line.startsWith('\\')) continue
+      if (line.startsWith('-')) {
+        lines.push(`${String(oldLine).padStart(6)}\t${line}`)
+        oldLine += 1
+      } else if (line.startsWith('+')) {
+        lines.push(`${String(newLine).padStart(6)}\t${line}`)
+        newLine += 1
+      } else {
+        oldLine += 1
+        newLine += 1
       }
     }
   }
-  return preview
+  return lines.join('\n')
 }
 
 export function formatFileChangeMessage(
@@ -60,10 +76,8 @@ export function formatFileChangeMessage(
     return hunks.length === 0 ? fileHeader : `${fileHeader}\n\n\`\`\`diff\n${formatUnifiedDiff(filePath, hunks)}\n\`\`\``
   }
   if (hunks.length === 0) return `The file ${filePath} has been updated successfully.`
-  const preview = formatChangePreview(hunks)
-  const previewBlock = preview.length > 0
-    ? `\`\`\`diff\n${preview.join('\n')}\n\`\`\``
-    : ''
+  const preview = formatChangePreviewLines(hunks)
+  const previewBlock = preview.length > 0 ? `\n${preview}` : ''
   const fullDiff = `\`\`\`diff\n${formatUnifiedDiff(filePath, hunks)}\n\`\`\``
-  return previewBlock ? `${fileHeader}\n${previewBlock}\n\n${fullDiff}` : `${fileHeader}\n${fullDiff}`
+  return previewBlock ? `${fileHeader}${previewBlock}\n\n${fullDiff}` : `${fileHeader}\n${fullDiff}`
 }

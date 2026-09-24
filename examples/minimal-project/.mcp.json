@@ -5,7 +5,10 @@
       "command": "node",
       "args": [
         "/absolute/path/to/encoding-bridge-mcp/dist/src/server.js"
-      ]
+      ],
+      "env": {
+        "ENCODING_BRIDGE_ROOTS": "/absolute/path/to/project-a;/absolute/path/to/project-b"
+      }
     }
   }
 }
