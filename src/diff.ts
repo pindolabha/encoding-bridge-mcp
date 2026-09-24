@@ -73,7 +73,10 @@ export function formatFileChangeMessage(
 ): string {
   const fileHeader = `File: ${filePath}`
   if (verb === 'created') {
-    return hunks.length === 0 ? fileHeader : `${fileHeader}\n\n\`\`\`diff\n${formatUnifiedDiff(filePath, hunks)}\n\`\`\``
+    if (hunks.length === 0) return fileHeader
+    const preview = formatChangePreviewLines(hunks)
+    const previewBlock = preview.length > 0 ? `\n${preview}` : ''
+    return `${fileHeader}${previewBlock}\n\n\`\`\`diff\n${formatUnifiedDiff(filePath, hunks)}\n\`\`\``
   }
   if (hunks.length === 0) return `The file ${filePath} has been updated successfully.`
   const preview = formatChangePreviewLines(hunks)
