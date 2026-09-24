@@ -100,7 +100,7 @@ export function createServer(): Server {
         // Put the timing marker at the end of the FIRST line so it is visible
         // in Claude Code's collapsed preview (a trailing line is never shown).
         // Read/Grep keep their header as line 1; the marker just trails it.
-        const timing = `[encoding-bridge-timing: ${request.params.name} ${elapsed}ms]`
+        const timing = `[${request.params.name} ${elapsed}ms]`
         const newline = text.text.indexOf('\n')
         if (newline === -1) {
           text.text = text.text.length === 0 ? timing : `${text.text} ${timing}`
