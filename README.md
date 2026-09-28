@@ -18,8 +18,8 @@ This is now the single recommended installation path for end users.
 # Remove an older install with the same name first, if one exists.
 claude mcp remove encoding-bridge -s user
 
-# Register the npm package once, at user scope. `cmd` is required on Windows.
-claude mcp add --scope user encoding-bridge -- cmd /d /s /c "npx -y encoding-bridge-mcp"
+# Register the npm package once, at user scope.
+claude mcp add --scope user encoding-bridge -- npx -y encoding-bridge-mcp
 claude mcp get encoding-bridge
 ```
 

@@ -38,8 +38,8 @@ Encoding Bridge 会自动识别文件编码，再按原编码写回去：
 # 如果以前装过同名的旧版本，先删除旧配置。
 claude mcp remove encoding-bridge -s user
 
-# 只在用户级注册一次 npm 包。Windows 需要使用 `cmd` 包装启动器。
-claude mcp add --scope user encoding-bridge -- cmd /d /s /c "npx -y encoding-bridge-mcp"
+# 只在用户级注册一次 npm 包。
+claude mcp add --scope user encoding-bridge -- npx -y encoding-bridge-mcp
 claude mcp get encoding-bridge
 ```
 
