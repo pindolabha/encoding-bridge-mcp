@@ -75,18 +75,17 @@ export async function getProjectFileContext(filePath: string): Promise<ProjectFi
   }
   if (!path.isAbsolute(filePath)) throw new Error('file_path must be an absolute path')
   const absolutePath = path.resolve(filePath)
-  // Resolve to the deepest known root that contains the file. If the file is
-  // outside every known root (e.g. the user just added a new workspace
-  // folder), auto-register its own directory as a new root so it becomes
-  // usable immediately without manual configuration.
+  // Resolve to the deepest known root that contains the file. Files outside
+  // every configured root (ENCODING_BRIDGE_ROOTS + cwd) are handled transiently:
+  // their encoding is cached in memory only, no `.encoding-bridge` index is
+  // created, and no watcher is started for that directory.
   const roots = configuredRoots()
-  let root = rootFor(roots, absolutePath)
-  if (root === undefined) {
-    root = path.dirname(absolutePath)
-    dynamicRoots.add(root)
-  }
+  const root = rootFor(roots, absolutePath) ?? path.dirname(absolutePath)
+  const inConfiguredRoot = rootFor(roots, absolutePath) !== undefined
   resolveProjectPath(root, absolutePath)
-  ensureProjectIndex(root)
+  // Only configured roots build a persistent index and start a watcher; files
+  // outside them are handled in memory only.
+  if (inConfiguredRoot) ensureProjectIndex(root)
   return {
     absolutePath,
     root,

@@ -199,14 +199,17 @@ describe('feature matrix: roots', () => {
     expect(realpathSync(context.root)).toBe(realpathSync(inner))
   })
 
-  it('auto-registers a root for a file outside every configured root', async () => {
+  it('does not auto-register a root for a file outside every configured root', async () => {
     const root = await project()
     const outside = await mkdtemp(path.join(tmpdir(), 'encoding-mcp-outside-'))
     const file = path.join(outside, 'ext.txt')
     await writeFile(file, 'out\n', 'utf8')
     delete process.env.ENCODING_BRIDGE_ROOTS
     const context = await getProjectFileContext(file)
+    // Files outside every configured root are handled transiently: the context
+    // root is the file's own directory, but it is NOT added to configuredRoots
+    // (no index directory or watcher is created for it).
     expect(realpathSync(context.root)).toBe(realpathSync(outside))
-    expect(configuredRoots().map(item => realpathSync(item))).toContain(realpathSync(outside))
+    expect(configuredRoots().map(item => realpathSync(item))).not.toContain(realpathSync(outside))
   })
 })

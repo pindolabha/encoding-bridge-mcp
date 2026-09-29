@@ -8,6 +8,7 @@ import {
   flushEncodingIndex,
   forgetIndexedEncoding,
   isSourceFileName,
+  markPersistentRoot,
   rememberIndexedEncoding,
   shouldIgnoreDirectoryName,
 } from '../encoding/index.js'
@@ -79,6 +80,10 @@ export async function executeScanEncodings(input: ScanEncodingsInput): Promise<T
     throw new Error(`Path is not a file or directory: ${targetInput}`)
   }
 
+  // A manual ScanEncodings is an explicit request to persist the index, even
+  // if the target isn't in ENCODING_BRIDGE_ROOTS, so mark it persistent before
+  // flushing.
+  markPersistentRoot(root)
   await flushEncodingIndex(root)
   ensureEncodingWatch(root)
   const summary = [...counts.entries()]

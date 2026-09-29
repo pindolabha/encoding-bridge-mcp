@@ -25,6 +25,24 @@ interface LoadedIndex {
 const indexes = new Map<string, LoadedIndex>()
 const WRITE_DELAY_MS = 250
 
+/**
+ * Roots whose encoding index is written to disk. Only configured roots
+ * (ENCODING_BRIDGE_ROOTS + cwd, reached via `ensureProjectIndex`) are
+ * persisted. Files outside every configured root are handled transiently in
+ * memory only: their encoding is cached in the in-memory map so a repeat
+ * access reads it without re-detecting, but no `.encoding-bridge` directory
+ * is created, no watcher is started, and nothing is written to disk.
+ */
+const persistentRoots = new Set<string>()
+
+export function markPersistentRoot(root: string): void {
+  persistentRoots.add(path.resolve(root))
+}
+
+function isPersistentRoot(root: string): boolean {
+  return persistentRoots.has(path.resolve(root))
+}
+
 function indexPath(root: string): string {
   return path.join(root, INDEX_DIRECTORY, INDEX_FILE)
 }
@@ -70,6 +88,10 @@ function getLoaded(root: string): LoadedIndex {
 async function flush(loaded: LoadedIndex): Promise<void> {
   if (!loaded.dirty) return
   loaded.dirty = false
+  // Roots outside every configured root are in-memory only: their encodings
+  // stay cached in the map for repeat reads, but never write an
+  // `.encoding-bridge` directory to disk.
+  if (!isPersistentRoot(loaded.root)) return
   const files: Record<string, IndexedFile> = {}
   for (const [relative, entry] of [...loaded.files.entries()].sort(([left], [right]) => left.localeCompare(right))) {
     files[relative] = entry
