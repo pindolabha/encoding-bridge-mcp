@@ -2,11 +2,9 @@
 
 [中文说明 / README_CN](README_CN.md)
 
-Encoding-transparent file tools for Claude Code and other MCP clients.
-
-Encoding Bridge exposes `Read`, `Grep`, `Edit`, and `Write` over MCP. It detects on-disk encodings, shows Unicode to the model, and writes files back in their original encoding.
-
-It is designed for legacy codebases that still use GBK/GB2312/GB18030, Big5, Shift-JIS, EUC-KR, Windows codepages, UTF-16, and other non-UTF-8 encodings.
+Claude Code's built-in file tools assume UTF-8, so non-UTF-8 files show
+garbled text. Encoding Bridge auto-detects the file encoding and writes back
+in the original encoding.
 
 ## Recommended install
 

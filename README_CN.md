@@ -2,7 +2,7 @@
 
 [English README](README.md)
 
-Claude 内置工具默认按 UTF-8 读写文件，遇到 GBK、Big5、Shift-JIS、UTF-16 等非 UTF-8 编码会读乱、改坏。Encoding Bridge 是给 Claude Code 用的一组文件工具，让读写非 UTF-8 文件不乱码、不把编码改坏——它自动识别文件编码，再按原编码写回。
+Claude 内置工具默认按 UTF-8 读写文件，非 UTF-8 文件会乱码。Encoding Bridge 自动识别文件编码，再按原编码写回。
 
 ---
 
