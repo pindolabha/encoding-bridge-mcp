@@ -30,31 +30,32 @@ Encoding Bridge 会自动识别文件编码，再按原编码写回去：
 
 ## 安装（推荐方式）
 
-只需要执行下面两条命令：
+Encoding Bridge 是**按项目**通过该项目的 `.mcp.json` 配置的。它只为 `ENCODING_BRIDGE_ROOTS` 列出的根目录启用；不配置时工具会报错，Claude 会回退用内置文件工具。VS Code 工作目录**不会**自动作为根目录。
 
-### Windows
+### 项目级 `.mcp.json`
 
-```powershell
-# 如果以前装过同名的旧版本，先删除旧配置。
-claude mcp remove encoding-bridge -s user
+在每个你想让 Encoding Bridge 处理的项目里，在项目根目录加一个 `.mcp.json`，注册 MCP server 并设置 `ENCODING_BRIDGE_ROOTS` 为存在遗留编码的目录：
 
-# 只在用户级注册一次 npm 包。
-claude mcp add --scope user encoding-bridge -- npx -y encoding-bridge-mcp
-claude mcp get encoding-bridge
+```json
+{
+  "mcpServers": {
+    "encoding-bridge": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "encoding-bridge-mcp"],
+      "env": {
+        "ENCODING_BRIDGE_ROOTS": "E:/path/to/project-a;E:/path/to/project-b"
+      }
+    }
+  }
+}
 ```
 
-### macOS / Linux
+- `ENCODING_BRIDGE_ROOTS` 是用路径分隔符（Windows 为 `;`，Unix 为 `:`）分隔的根目录列表。每个列出的根目录各有一份 `.encoding-bridge/encoding-index.json`。
+- 单文件夹项目只需列出它自己的路径，不需要任何全局配置。
+- **没有** `.mcp.json`（或没有 `ENCODING_BRIDGE_ROOTS`）的项目保持原样——Encoding Bridge 不会在那里建索引、启动 watch、探测编码；Claude 用内置工具。
 
-```bash
-# 如果以前装过同名的旧版本，先删除旧配置。
-claude mcp remove encoding-bridge -s user
-
-# 只在用户级注册一次 npm 包。
-claude mcp add --scope user encoding-bridge -- npx -y encoding-bridge-mcp
-claude mcp get encoding-bridge
-```
-
-如果第二条命令显示 `Connected`，说明安装成功。请**新开**一个 Claude Code 会话后再用。
+添加文件后，请**新开**一个 Claude Code 会话再用。
 
 ### 在项目里放行工具（项目级）
 

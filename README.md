@@ -10,31 +10,42 @@ It is designed for legacy codebases that still use GBK/GB2312/GB18030, Big5, Shi
 
 ## Recommended install
 
-This is now the single recommended installation path for end users.
+Encoding Bridge is configured **per project** via that project's `.mcp.json`.
+It only engages for roots listed in `ENCODING_BRIDGE_ROOTS`; without
+configuration the tools throw, so Claude falls back to its built-in file tools.
+The VS Code working directory is NOT auto-treated as a root.
 
-### Windows
+### Per-project `.mcp.json`
 
-```powershell
-# Remove an older install with the same name first, if one exists.
-claude mcp remove encoding-bridge -s user
+In each project you want Encoding Bridge to handle, add a `.mcp.json` in the
+project root that registers the MCP server and sets `ENCODING_BRIDGE_ROOTS` to
+the directories that have legacy encodings:
 
-# Register the npm package once, at user scope.
-claude mcp add --scope user encoding-bridge -- npx -y encoding-bridge-mcp
-claude mcp get encoding-bridge
+```json
+{
+  "mcpServers": {
+    "encoding-bridge": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "encoding-bridge-mcp"],
+      "env": {
+        "ENCODING_BRIDGE_ROOTS": "E:/path/to/project-a;E:/path/to/project-b"
+      }
+    }
+  }
+}
 ```
 
-### macOS / Linux
+- `ENCODING_BRIDGE_ROOTS` is a path-separator (`;` on Windows, `:` on Unix)
+  delimited list of root directories. Each listed root gets its own
+  `.encoding-bridge/encoding-index.json`.
+- A single-folder project only needs its own path listed; you do not need to
+  configure anything globally.
+- Projects **without** a `.mcp.json` (or without `ENCODING_BRIDGE_ROOTS`) are
+  left untouched — Encoding Bridge does not build an index, start a watcher, or
+  probe encodings there; Claude uses its built-in tools.
 
-```bash
-# Remove an older install with the same name first, if one exists.
-claude mcp remove encoding-bridge -s user
-
-# Register the npm package once, at user scope.
-claude mcp add --scope user encoding-bridge -- npx -y encoding-bridge-mcp
-claude mcp get encoding-bridge
-```
-
-If `claude mcp get` reports `Connected`, installation succeeded. Start a **new** Claude Code session.
+After adding the file, start a **new** Claude Code session in that project.
 
 ### Allow the tools in a project
 
