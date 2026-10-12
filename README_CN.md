@@ -2,39 +2,17 @@
 
 [English README](README.md)
 
-Encoding Bridge 是给 Claude Code 用的一组文件工具。
-
-它解决的问题很简单：
-
-如果你的项目不是 UTF-8，而是 GBK、Big5、Shift-JIS、UTF-16 这类编码，Claude Code 自带的 `Read`、`Grep`、`Edit`、`Write` 很容易把文件读乱、搜错、改坏。
-
-Encoding Bridge 会自动识别文件编码，再按原编码写回去：
-
-- 读文件时先解码成正常文字给模型；
-- 改已有文件时保持原来的编码、BOM 和换行；
-- 新内容如果目标编码表示不了，会直接报错，而不是偷偷写坏。
+Claude 内置工具默认按 UTF-8 读写文件，遇到 GBK、Big5、Shift-JIS、UTF-16 等非 UTF-8 编码会读乱、改坏。Encoding Bridge 是给 Claude Code 用的一组文件工具，让读写非 UTF-8 文件不乱码、不把编码改坏——它自动识别文件编码，再按原编码写回。
 
 ---
 
 ## 适合什么项目
 
-适合这些情况：
+需要读写非 UTF-8 文件的项目。
 
-- C / C++ 老项目还在用 GBK；
-- Windows 老项目用 `windows-1251`、`windows-1252`；
-- 日文项目用 `Shift-JIS`；
-- 一部分文件是 UTF-16；
-- Claude Code 一读文件就乱码，或者一改文件就把编码改坏。
+## 安装
 
----
-
-## 安装（推荐方式）
-
-Encoding Bridge 是**按项目**通过该项目的 `.mcp.json` 配置的。它只为 `ENCODING_BRIDGE_ROOTS` 列出的根目录启用；不配置时工具会报错，Claude 会回退用内置文件工具。VS Code 工作目录**不会**自动作为根目录。
-
-### 项目级 `.mcp.json`
-
-在每个你想让 Encoding Bridge 处理的项目里，在项目根目录加一个 `.mcp.json`，注册 MCP server 并设置 `ENCODING_BRIDGE_ROOTS` 为存在遗留编码的目录：
+在需要处理遗留编码（GBK/GB2312 等）的项目里，项目根目录加一个 `.mcp.json`，在 `ENCODING_BRIDGE_ROOTS` 里配置要用 Encoding Bridge 的工作区（根目录）：
 
 ```json
 {
@@ -51,11 +29,7 @@ Encoding Bridge 是**按项目**通过该项目的 `.mcp.json` 配置的。它�
 }
 ```
 
-- `ENCODING_BRIDGE_ROOTS` 是用路径分隔符（Windows 为 `;`，Unix 为 `:`）分隔的根目录列表。每个列出的根目录各有一份 `.encoding-bridge/encoding-index.json`。
-- 单文件夹项目只需列出它自己的路径，不需要任何全局配置。
-- **没有** `.mcp.json`（或没有 `ENCODING_BRIDGE_ROOTS`）的项目保持原样——Encoding Bridge 不会在那里建索引、启动 watch、探测编码；Claude 用内置工具。
-
-添加文件后，请**新开**一个 Claude Code 会话再用。
+`ENCODING_BRIDGE_ROOTS` 是要处理的工作区列表，多个用 `;`（Windows）或 `:`（Unix）分隔。
 
 ### 在项目里放行工具（项目级）
 
@@ -75,86 +49,11 @@ Encoding Bridge 用的是**项目级**权限：在你想让它处理的每个项
 }
 ```
 
-这是刻意做成**项目级**的：只对拥有这份 `.claude/settings.json` 的项目生效，**不会改动用户级 `~/.claude/settings.json`**。第一次打开混编码仓库时会在后台自动建立本机编码索引，无需任何手动配置。
-
-### 多根工作区（Multi-root workspace）
-
-**单文件夹工作区**开箱即用，**零配置**：MCP 进程的 `cwd`（VS Code 工作目录）就是索引根，该目录下的文件会自动读取并建立编码索引。
-
-**多根工作区**只有一个文件夹是进程 `cwd`。编码桥**无法自动发现其他文件夹**（VS Code 不会把工作区根列表暴露给 MCP server 进程），所以必须在项目的 `.mcp.json` 里用 `ENCODING_BRIDGE_ROOTS` 显式列出：
-
-```json
-{
-  "mcpServers": {
-    "encoding-bridge": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "encoding-bridge-mcp"],
-      "env": {
-        "ENCODING_BRIDGE_ROOTS": "C:/path/to/project-a;C:/path/to/project-b"
-      }
-    }
-  }
-}
-```
-
-- `ENCODING_BRIDGE_ROOTS` 是用路径分隔符（Windows 为 `;`，Unix 为 `:`）分隔的根目录列表。每个根各有一份 `.encoding-bridge/encoding-index.json`。
-- 文件会被归到「包含它的、最深的」已配置根。
-- 这个文件放在项目根，配置一次即可，**重启 VS Code / 重载会话都会沿用，不用每次手动加**。
-- 每个用户填**自己的**路径；发布的包本身不含任何写死的路径。
-
 ---
 
-## 怎么确认它真的在工作
+## 确认是否正常工作
 
-新开一个 Claude Code 会话，让它读或搜索一个旧编码文件。工具调用应是 `mcp__encoding-bridge__Read` / `Grep` / `Edit` / `Write`，而不是内置同名工具。
-
----
-
-## 它具体能做什么
-
-### Read
-
-- 自动识别编码并解码；
-- 大文件支持 `offset` / `limit` 分段读；
-- 支持图片、PDF、Notebook 读取。
-
-### Grep
-
-- ASCII 一次搜索即可，不区分编码；
-- 中文等非 ASCII 按本机编码索引分组搜索；
-- 支持 `content` / `files_with_matches` / `count`，以及 `glob`、上下文行、分页。
-
-### Edit
-
-- 只要目标行已经读过，就可以改；
-- 改之前会检查文件有没有变化；
-- 保留原编码、BOM 和换行。
-
-### Write
-
-- 新文件默认 UTF-8；
-- 已有文件要求先读过，并按原编码写回。
-
----
-
-## 常见问题
-
-### 1. `Invalid byte sequence for utf-8`
-
-文件不是 UTF-8。再读一次该文件，或打开该目录后等后台索引建完，Bridge 会探测并记住编码。
-
-### 2. `Text contains characters not representable in ...`
-
-要写入的字符，当前文件编码表示不了。
-
-### 3. `The target text has not been read`
-
-想改的那几行还没读过，按提示补读即可。
-
-### 4. Claude 还是在用内置工具
-
-安装后请新开会话。权限需要在**项目级** `.claude/settings.json` 里配置（见上方「在项目里放行工具（项目级）」），不会自动写入用户级 `~/.claude/settings.json`。
+新开（或重载）一个 Claude Code 会话，让它读或搜索一个旧编码文件。工具调用应是 `mcp__encoding-bridge__Read` / `Grep` / `Edit` / `Write`，而不是内置同名工具。配了 `ENCODING_BRIDGE_ROOTS` 的目录下会生成 `.encoding-bridge/encoding-index.json`，说明已启用。
 
 ---
 

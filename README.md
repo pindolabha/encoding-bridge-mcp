@@ -79,14 +79,12 @@ What this requires locally:
 
 ### Multi-root workspaces
 
-A single-folder workspace works with **zero configuration**: the MCP process
-`cwd` (the VS Code working directory) is used as the index root, so files
-under it are read and indexed automatically.
-
-In a **multi-root workspace**, only the first folder is the process `cwd`.
-Encoding Bridge cannot discover the other folders by itself (VS Code does not
-expose them to MCP server processes), so they must be listed explicitly via
-the `ENCODING_BRIDGE_ROOTS` environment variable in the project `.mcp.json`:
+The `.mcp.json` lives in the **first** workspace folder VS Code opens. Its
+`ENCODING_BRIDGE_ROOTS` lists every root Encoding Bridge should handle,
+separated by `;` (Windows) or `:` (Unix). A single-folder workspace lists
+just its own path; a multi-root workspace (or any project that also touches
+other directories) lists them all — there is no dependency on the process
+cwd being a root:
 
 ```json
 {
@@ -103,14 +101,11 @@ the `ENCODING_BRIDGE_ROOTS` environment variable in the project `.mcp.json`:
 }
 ```
 
-- `ENCODING_BRIDGE_ROOTS` is a path-separator (`;` on Windows, `:` on
-  Unix) delimited list of root directories. Each root gets its own
-  `.encoding-bridge/encoding-index.json`.
+- Each listed root gets its own `.encoding-bridge/encoding-index.json`.
 - Files are resolved to the deepest listed root that contains them.
-- This file lives in the project root, so it persists across restarts — you
-  configure it once, not on every reload.
-- Other users put their **own** paths here; the published package contains no
-  hard-coded paths.
+- Projects without a `.mcp.json` / `ENCODING_BRIDGE_ROOTS` are left untouched;
+  Encoding Bridge does not index, watch, or probe them there, and Claude uses
+  its built-in tools.
 
 ---
 
