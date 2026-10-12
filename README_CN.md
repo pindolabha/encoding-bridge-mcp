@@ -31,6 +31,8 @@ Claude 内置工具默认按 UTF-8 读写文件，非 UTF-8 文件会乱码。En
 
 `ENCODING_BRIDGE_ROOTS` 是要处理的工作区列表，多个用 `;`（Windows）或 `:`（Unix）分隔。
 
+`.mcp.json` 要放在 VS Code **打开的第一个工作区**；放到后续添加的其他工作区不生效。
+
 ### 在项目里放行工具（项目级）
 
 Encoding Bridge 用的是**项目级**权限：在你想让它处理的每个项目里，创建或编辑该项目的 `.claude/settings.json`，允许 MCP 工具、禁用内置文件工具：

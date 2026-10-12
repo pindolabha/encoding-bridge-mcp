@@ -36,7 +36,8 @@ workspaces Encoding Bridge should handle:
 `ENCODING_BRIDGE_ROOTS` is the list of workspaces to handle; separate multiple
 entries with `;` (Windows) or `:` (Unix).
 
-The `.mcp.json` lives in the first workspace folder VS Code opens.
+The `.mcp.json` lives in the first workspace folder VS Code opens; putting it
+in a workspace folder added later has no effect.
 
 ### Allow the tools in a project
 
