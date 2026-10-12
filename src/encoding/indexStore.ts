@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import { INDEX_DIRECTORY, INDEX_FILE } from './detect.js'
@@ -98,10 +98,10 @@ async function flush(loaded: LoadedIndex): Promise<void> {
   }
   const directory = path.join(loaded.root, INDEX_DIRECTORY)
   await mkdir(directory, { recursive: true })
-  const target = indexPath(loaded.root)
-  const temp = `${target}.${process.pid}.tmp`
-  await writeFile(temp, `${JSON.stringify({ version: 1, files }, null, 2)}\n`, 'utf8')
-  await rename(temp, target)
+  // The index is a rebuildable cache (a lost/corrupt index only forces a
+  // re-detect on the next access), so a simple overwrite is fine. Existing
+  // index is replaced (truncated) and a missing one is created.
+  await writeFile(indexPath(loaded.root), `${JSON.stringify({ version: 1, files }, null, 2)}\n`, 'utf8')
 }
 
 function scheduleWrite(loaded: LoadedIndex): void {

@@ -10,6 +10,7 @@ import { executeGrep } from '../src/tools/grep.js'
 
 async function fixture(): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), 'encoding-grep-'))
+  process.env.ENCODING_BRIDGE_ROOTS = root
   process.chdir(root)
   await mkdir(path.join(root, 'nested'))
   await writeFile(path.join(root, 'a.txt'), iconv.encode('第一行\n错误：连接失败\n第三行', 'gbk'))
@@ -26,6 +27,7 @@ afterEach(async () => {
 describe('ripgrep Grep', () => {
   it('searches UTF-8 directories without encoding rules', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'encoding-grep-no-rules-'))
+    process.env.ENCODING_BRIDGE_ROOTS = root
     process.chdir(root)
     const file = path.join(root, 'plain.txt')
     await writeFile(file, 'needle', 'utf8')

@@ -13,8 +13,9 @@ import { executeWrite } from '../src/tools/write.js'
 
 async function project(): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), 'encoding-mcp-tools-'))
-  // The index root is process.cwd() (VS Code working directory), so switch the
-  // test process cwd into the temp dir so the fixture files live inside it.
+  // The index root is the configured ENCODING_BRIDGE_ROOTS, so register the
+  // temp dir and switch the test cwd into it so fixtures live inside a root.
+  process.env.ENCODING_BRIDGE_ROOTS = root
   process.chdir(root)
   return root
 }

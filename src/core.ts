@@ -39,22 +39,17 @@ function digest(buffer: Buffer): string {
 }
 
 /** Roots auto-registered on first access outside the configured roots. */
-const dynamicRoots = new Set<string>()
-
 /**
- * Resolve the list of index roots. Defaults to the process cwd (VS Code
- * working directory). A multi-root workspace can list extra roots via the
- * `ENCODING_BRIDGE_ROOTS` env var (path-separator delimited, e.g. `;` on
- * Windows), and directories are auto-registered on first access, so adding a
- * workspace folder requires no manual configuration.
+ * Resolve the list of index roots. Only roots explicitly listed in
+ * `ENCODING_BRIDGE_ROOTS` (path-separator delimited, e.g. `;` on Windows) are
+ * used. Without configuration the list is empty and Encoding Bridge does not
+ * engage at all (tools are unusable, so Claude falls back to its built-ins);
+ * the VS Code working directory is NOT auto-treated as a root.
  */
 export function configuredRoots(): string[] {
   const raw = process.env.ENCODING_BRIDGE_ROOTS
-  const explicit = raw
-    ? raw.split(path.delimiter).map(p => p.trim()).filter(Boolean).map(p => path.resolve(p))
-    : []
-  const cwd = path.resolve(process.cwd())
-  return [...explicit, ...dynamicRoots, cwd]
+  if (!raw) return []
+  return raw.split(path.delimiter).map(p => p.trim()).filter(Boolean).map(p => path.resolve(p))
 }
 
 /** Find which configured root contains the path (deepest match wins). */
@@ -75,16 +70,17 @@ export async function getProjectFileContext(filePath: string): Promise<ProjectFi
   }
   if (!path.isAbsolute(filePath)) throw new Error('file_path must be an absolute path')
   const absolutePath = path.resolve(filePath)
-  // Resolve to the deepest known root that contains the file. Files outside
-  // every configured root (ENCODING_BRIDGE_ROOTS + cwd) are handled transiently:
-  // their encoding is cached in memory only, no `.encoding-bridge` index is
-  // created, and no watcher is started for that directory.
   const roots = configuredRoots()
+  // Without any configured root Encoding Bridge is not engaged: throw so the
+  // model falls back to Claude's built-in tools.
+  if (roots.length === 0) {
+    throw new Error('Encoding Bridge is not configured. Set ENCODING_BRIDGE_ROOTS in the project .mcp.json to enable it.')
+  }
+  // Files inside a configured root get a persistent index + watcher; files
+  // outside every root are handled transiently (memory-only cache).
   const root = rootFor(roots, absolutePath) ?? path.dirname(absolutePath)
   const inConfiguredRoot = rootFor(roots, absolutePath) !== undefined
   resolveProjectPath(root, absolutePath)
-  // Only configured roots build a persistent index and start a watcher; files
-  // outside them are handled in memory only.
   if (inConfiguredRoot) ensureProjectIndex(root)
   return {
     absolutePath,

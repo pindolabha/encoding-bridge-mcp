@@ -16,6 +16,7 @@ afterEach(async () => {
 describe('ScanEncodings', () => {
   it('writes a local index for mixed UTF-8 and GBK files', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'encoding-scan-'))
+    process.env.ENCODING_BRIDGE_ROOTS = root
     process.chdir(root)
     await writeFile(path.join(root, 'utf8.txt'), '错误 utf8', 'utf8')
     await writeFile(path.join(root, 'gbk.txt'), iconv.encode('错误 gbk', 'gbk'))
