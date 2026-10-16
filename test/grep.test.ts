@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { clearEncodingIndexCache, flushEncodingIndex } from '../src/encoding/index.js'
 import { executeGrep } from '../src/tools/grep.js'
+import { runRipgrep } from '../src/tools/ripgrep.js'
 
 async function fixture(): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), 'encoding-grep-'))
@@ -119,5 +120,64 @@ describe('ripgrep Grep', () => {
     const result = await executeGrep({ pattern: 'SeFoo', path: root, type: 'cpp' })
     const text = (result.content[0] as { text: string }).text
     expect(text).toContain('decl.h')
+  })
+
+  // rg drops the `file:` prefix when it is handed exactly one file. Both paths
+  // that can hand it a single file are covered here: a file path argument, and
+  // an encoding group that happens to contain one file.
+  it('keeps the filename for a single-file path argument', async () => {
+    const root = await fixture()
+    const file = path.join(root, 'note.md')
+    const content = await executeGrep({ pattern: 'here', path: file, output_mode: 'content' })
+    const contentText = (content.content[0] as { text: string }).text
+    expect(contentText).toContain('Matches: 1 across 1 file')
+    expect(contentText).toMatch(/note\.md:2:.*also here/)
+    expect(contentText).toMatch(/Files \(1\):\s*\n\s+- \S*note\.md/)
+
+    const counts = await executeGrep({ pattern: 'here', path: file, output_mode: 'count' })
+    const countText = (counts.content[0] as { text: string }).text
+    // A bare `1` here used to be counted as zero files with zero matches.
+    expect(countText).toContain('Matches: 1 across 1 file')
+    expect(countText).toMatch(/note\.md:1/)
+  })
+
+  it('does not read a context line as a filename on a single-file target', async () => {
+    const root = await fixture()
+    const file = path.join(root, 'context.txt')
+    await writeFile(file, 'alpha\nbeta\nalpha\n', 'utf8')
+    const result = await executeGrep({ pattern: 'alpha', path: file, output_mode: 'content', '-C': 1 })
+    const text = (result.content[0] as { text: string }).text
+    expect(text).toContain('Matches: 2 across 1 file')
+    expect(text).toContain('Files (1):')
+    // Without the prefix, `2-beta` is read as a file named "2".
+    expect(text).not.toMatch(/\n\s+- 2\b/)
+    expect(text).toContain('context.txt')
+  })
+
+  it('keeps the filename when an encoding group holds a single file', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'encoding-grep-single-group-'))
+    process.env.ENCODING_BRIDGE_ROOTS = root
+    process.chdir(root)
+    // One GBK and one UTF-8 file, so each encoding group holds exactly one file.
+    await writeFile(path.join(root, 'gbk.txt'), iconv.encode('唯一命中\n', 'gbk'))
+    await writeFile(path.join(root, 'utf8.txt'), '无关内容\n', 'utf8')
+    const result = await executeGrep({ pattern: '唯一命中', path: root, output_mode: 'content' })
+    const text = (result.content[0] as { text: string }).text
+    expect(text).toContain('Matches: 1 across 1 file')
+    expect(text).toMatch(/gbk\.txt:1:/)
+  })
+
+  it('refuses to start rg once the shared request deadline has passed', async () => {
+    const root = await fixture()
+    // The single rg call would finish instantly; only the request-wide deadline
+    // can stop it, so this fails if the budget is per-call again.
+    await expect(runRipgrep({
+      pattern: 'x',
+      cwd: root,
+      target: root,
+      outputMode: 'files_with_matches',
+      timeoutMs: 30_000,
+      deadline: Date.now() - 1,
+    })).rejects.toThrow(/timed out after 30000ms/)
   })
 })

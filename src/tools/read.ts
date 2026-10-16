@@ -121,16 +121,16 @@ export async function executeRead(input: ReadInput): Promise<ToolResponse> {
       `File content (~${estTokens} tokens) exceeds maximum allowed tokens (${maxTokens}). Use offset and limit to read a portion of the file. Set ENCODING_BRIDGE_MAX_READ_OUTPUT_TOKENS to raise it.`,
     )
   }
+  // Record the range the caller asked for verbatim (an omitted limit means "to
+  // EOF"). Storing the resolved totalLine count here instead made the expiry
+  // key unmatchable, so a repeated plain Read never hit the "unchanged"
+  // short-circuit below.
   const remembered = {
     ...snapshot,
     text: selectedText,
     complete: false,
     offset: input.offset ?? 1,
-    ...(input.limit !== undefined
-      ? { limit: input.limit }
-      : snapshot.totalLines !== undefined
-        ? { limit: snapshot.totalLines }
-        : {}),
+    ...(input.limit === undefined ? {} : { limit: input.limit }),
   }
 
   if (selectedText.length === 0 && snapshot.size === 0) {

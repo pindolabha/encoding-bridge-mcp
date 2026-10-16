@@ -167,7 +167,7 @@ async function bucketByEncoding(root: string, files: string[]): Promise<Map<stri
   return buckets
 }
 
-function commonRipgrepOptions(input: GrepInput, mode: GrepOutputMode, timeoutMs: number) {
+function commonRipgrepOptions(input: GrepInput, mode: GrepOutputMode, timeoutMs: number, deadline: number) {
   const context = input.context ?? input['-C']
   const before = context ?? input['-B']
   const after = context ?? input['-A']
@@ -185,12 +185,17 @@ function commonRipgrepOptions(input: GrepInput, mode: GrepOutputMode, timeoutMs:
     ...(input.glob === undefined ? {} : { glob: input.glob }),
     ...(types === undefined ? {} : { typeGlobs: types }),
     timeoutMs,
+    deadline,
   }
 }
 
 export async function executeGrep(input: GrepInput): Promise<ToolResponse> {
   const startedAt = Date.now()
   const limits = grepLimits()
+  // One budget for the whole request: enumerating candidates and every
+  // per-encoding search share this deadline, instead of each rg call getting a
+  // fresh full timeout (which multiplied the limit by the number of calls).
+  const deadline = startedAt + limits.maxDurationMs
   const targetInput = path.resolve(input.path ?? process.cwd())
   const initialContext = await getProjectFileContext(targetInput)
   const safeTarget = await inspectProjectPath(initialContext.root, targetInput)
@@ -205,7 +210,7 @@ export async function executeGrep(input: GrepInput): Promise<ToolResponse> {
   const offset = input.offset ?? 0
   const requestedLimit = input.head_limit ?? 250
   const limit = requestedLimit === 0 ? MAX_GREP_ENTRIES : Math.min(requestedLimit, MAX_GREP_ENTRIES)
-  const shared = commonRipgrepOptions(input, mode, limits.maxDurationMs)
+  const shared = commonRipgrepOptions(input, mode, limits.maxDurationMs, deadline)
   let lines: string[] = []
   let usedRipgrepGroups = 1
 
@@ -222,6 +227,7 @@ export async function executeGrep(input: GrepInput): Promise<ToolResponse> {
       cwd: safeTarget.root,
       target: safeTarget.target,
       timeoutMs: limits.maxDurationMs,
+      deadline,
     }
     if (input.glob !== undefined) listOptions.glob = input.glob
     if (input.type !== undefined) {

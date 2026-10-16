@@ -38,6 +38,11 @@ export interface RipgrepRunOptions {
   glob?: string
   typeGlobs?: string[]
   timeoutMs: number
+  /** Absolute epoch-ms deadline shared by every rg call in one Grep request.
+   *  Without it each call (and each chunk) would get a fresh full budget, so a
+   *  request spanning an enumeration plus one pass per encoding could run for
+   *  (calls x timeoutMs) instead of timeoutMs. */
+  deadline?: number
   /** Content mode only: sentinel separators so matches can be counted
    *  precisely even when context lines are mixed into the output. */
   fieldSeparators?: { match: string; context: string; group: string }
@@ -49,6 +54,12 @@ function searchArgs(options: RipgrepRunOptions): string[] {
     '--no-config',
     '--color', 'never',
     '--max-columns', '500',
+    // rg omits the `file:` prefix when it is handed exactly one file, which
+    // silently breaks everything downstream: content lines lose the filename
+    // (and a context line's `-` separator then parses as a filename), and
+    // count mode returns a bare number that has no file to attach to. Always
+    // asking for the prefix keeps both paths parseable.
+    '--with-filename',
   ]
   if (options.files === undefined) args.push('--no-ignore')
   if (options.encoding !== undefined) args.push('--encoding', options.encoding)
@@ -125,25 +136,28 @@ function runProcess(args: string[], cwd: string, timeoutMs: number): Promise<str
   })
 }
 
+/** Time left for the next rg call: the request deadline caps the configured
+ *  budget, and an exhausted deadline means the request is already out of time. */
+function remainingBudget(options: { timeoutMs: number; deadline?: number }): number {
+  const deadline = options.deadline ?? Date.now() + options.timeoutMs
+  const budget = Math.min(options.timeoutMs, deadline - Date.now())
+  if (budget <= 0) throw new Error(`ripgrep timed out after ${options.timeoutMs}ms`)
+  return budget
+}
+
 export async function runRipgrep(options: RipgrepRunOptions): Promise<string[]> {
   if (options.files !== undefined && options.files.length === 0) return []
   const args = searchArgs(options)
-  // The timeout is a budget for the WHOLE request: each chunk gets only the
-  // time left, so a multi-chunk search cannot run for chunks × timeout.
-  const deadline = Date.now() + options.timeoutMs
   if (options.files === undefined) {
+    const budget = remainingBudget(options)
     if (options.target !== undefined) args.push(options.target)
-    return runProcess(args, options.cwd, options.timeoutMs)
+    return runProcess(args, options.cwd, budget)
   }
   const relativeFiles = options.files.map(file => path.isAbsolute(file) ? path.relative(options.cwd, file) : file)
   const chunks = chunkFiles(relativeFiles, args.reduce((total, item) => total + item.length + 1, 0))
   const lines: string[] = []
   for (const chunk of chunks) {
-    const remaining = deadline - Date.now()
-    if (remaining <= 0) {
-      throw new Error(`ripgrep timed out after ${options.timeoutMs}ms`)
-    }
-    lines.push(...await runProcess([...args, ...chunk], options.cwd, remaining))
+    lines.push(...await runProcess([...args, ...chunk], options.cwd, remainingBudget(options)))
   }
   return lines
 }
@@ -161,6 +175,8 @@ export interface RipgrepListOptions {
   glob?: string
   typeGlobs?: string[]
   timeoutMs: number
+  /** Same request-wide deadline the follow-up searches share. */
+  deadline?: number
 }
 
 /**
@@ -177,6 +193,6 @@ export async function listRipgrepFiles(options: RipgrepListOptions): Promise<str
   if (options.glob) args.push('--glob', options.glob)
   for (const glob of options.typeGlobs ?? []) args.push('--glob', glob)
   if (options.target !== undefined) args.push(options.target)
-  const lines = await runProcess(args, options.cwd, options.timeoutMs)
+  const lines = await runProcess(args, options.cwd, remainingBudget(options))
   return lines.map(line => path.resolve(options.cwd, line))
 }

@@ -219,6 +219,20 @@ interface ReadCoverage {
 
 const MAX_REGISTRY_ENTRIES = 128
 
+/**
+ * Identify the range a caller asked for. Offset 0 and an omitted offset both
+ * mean "from the top" (read.ts normalizes them the same way), and an omitted
+ * limit means "to EOF" — recorded as `*` so it never collides with an explicit
+ * limit. Storing the caller's request verbatim is the point: the registry used
+ * to record a *normalized* limit (totalLines) while `isUnchanged` compared the
+ * raw argument, so the two could never match and the "file unchanged"
+ * short-circuit never fired for a plain Read.
+ */
+function rangeKey(offset: number | undefined, limit: number | undefined): string {
+  const start = offset === undefined || offset === 0 ? 1 : offset
+  return `${start}:${limit ?? '*'}`
+}
+
 function mergeIntervals(
   intervals: Array<{ start: number; end: number }>,
   next: { start: number; end: number },
@@ -246,7 +260,7 @@ function mergeIntervals(
 export class ReadRegistry {
   private readonly snapshots = new Map<string, Pick<ReadSnapshot, 'mtimeMs' | 'size'>>()
   private readonly coverage = new Map<string, ReadCoverage>()
-  private readonly ranges = new Map<string, { mtimeMs: number; size: number; hash: string; offset?: number; limit?: number }>()
+  private readonly ranges = new Map<string, { mtimeMs: number; size: number; hash: string; range: string }>()
 
   private evictIfNeeded(): void {
     while (this.coverage.size >= MAX_REGISTRY_ENTRIES) {
@@ -327,8 +341,7 @@ export class ReadRegistry {
       mtimeMs: snapshot.mtimeMs,
       size: snapshot.size,
       hash: snapshot.hash,
-      ...(snapshot.offset === undefined ? {} : { offset: snapshot.offset }),
-      ...(snapshot.limit === undefined ? {} : { limit: snapshot.limit }),
+      range: rangeKey(snapshot.offset, snapshot.limit),
     })
   }
 
@@ -362,7 +375,9 @@ export class ReadRegistry {
   async isUnchanged(filePath: string, root: string, offset?: number, limit?: number): Promise<boolean> {
     const absolutePath = path.resolve(filePath)
     const previous = this.ranges.get(absolutePath)
-    if (!previous || previous.offset !== offset || previous.limit !== limit) return false
+    // Only the exact same request can reuse the previous result: a different
+    // range returns different text, so it must not short-circuit.
+    if (!previous || previous.range !== rangeKey(offset, limit)) return false
     // Compare mtime+size via stat alone — reading the file just to check for
     // changes wasted a full-file read on every repeat Read. (Claude's own
     // dedup uses a stat-only modification-time check for the same reason.)
@@ -382,7 +397,7 @@ export class ReadRegistry {
       totalLines,
       intervals: [{ start: 1, end: totalLines }],
     })
-    this.ranges.set(snapshot.absolutePath, { mtimeMs, size: buffer.length, hash })
+    this.ranges.set(snapshot.absolutePath, { mtimeMs, size: buffer.length, hash, range: rangeKey(1, undefined) })
   }
 }
 export const readRegistry = new ReadRegistry()

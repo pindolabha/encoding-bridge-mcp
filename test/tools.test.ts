@@ -127,6 +127,27 @@ describe('encoding-transparent text tools', () => {
     expect(iconv.decode(await readFile(file), 'gbk')).toContain('F')
   })
 
+  it('returns the unchanged stub only for a repeated identical read', async () => {
+    const root = await project()
+    const file = path.join(root, 'repeat.txt')
+    await writeFile(file, 'one\ntwo\nthree\n', 'utf8')
+    const first = await executeRead({ file_path: file })
+    expect((first.content[0] as { text: string }).text).toContain('one')
+    const second = await executeRead({ file_path: file })
+    expect((second.content[0] as { text: string }).text).toContain('File unchanged since last read')
+  })
+
+  it('re-reads in full when the earlier read was a different range', async () => {
+    const root = await project()
+    const file = path.join(root, 'ranges.txt')
+    await writeFile(file, 'one\ntwo\nthree\n', 'utf8')
+    await executeRead({ file_path: file, offset: 2, limit: 1 })
+    // Same file, different range: the earlier result cannot stand in for this.
+    const full = await executeRead({ file_path: file })
+    expect((full.content[0] as { text: string }).text).toContain('three')
+    expect((full.content[0] as { text: string }).text).not.toContain('File unchanged')
+  })
+
   it('edits after re-reading a file that changed externally', async () => {
     const root = await project()
     const file = path.join(root, 'versioned-ranges.txt')
