@@ -224,4 +224,70 @@ describe('ripgrep Grep', () => {
       delete process.env.ENCODING_BRIDGE_MAX_GREP_OUTPUT_BYTES
     }
   })
+
+  it('bounds -o output by match count, which --max-columns cannot', async () => {
+    const root = await fixture()
+    const file = path.join(root, 'one-line.txt')
+    // One 1 MB line of 'x'. Without -o this line is omitted whole (99 bytes,
+    // measured); with -o every byte is its own match, and rg measures
+    // --max-columns against each match rather than the line, so it emits
+    // 1,000,000 lines / ~66 MB. No rg flag bounds that (-m/--max-count counts
+    // matching lines, and rg documents that multiple matches in one line count
+    // once), so the cap has to be ours.
+    await writeFile(file, 'x'.repeat(1024 * 1024))
+    process.env.ENCODING_BRIDGE_MAX_GREP_ONLY_MATCHES = '500'
+    try {
+      const lines = await runRipgrep({
+        pattern: 'x',
+        cwd: root,
+        files: [file],
+        outputMode: 'content',
+        onlyMatching: true,
+        lineNumbers: true,
+        timeoutMs: 30_000,
+      })
+      // While the cap went unread this was 1,000,000. Stopping can overshoot by
+      // at most the one chunk that tripped it, so the bound stays generous.
+      expect(lines.length).toBeLessThan(50_000)
+      expect(lines.length).toBeGreaterThan(0)
+      // The trailing line is dropped as a possible fragment, so everything kept
+      // must still be a complete match.
+      for (const line of lines) expect(line.endsWith('x')).toBe(true)
+    } finally {
+      delete process.env.ENCODING_BRIDGE_MAX_GREP_ONLY_MATCHES
+    }
+  })
+
+  it('stops rg at the output cap instead of letting it finish', async () => {
+    const root = await fixture()
+    const file = path.join(root, 'one-line.txt')
+    // 10M one-byte lines. Uncapped, `-o` makes every byte its own match line, so
+    // rg has ~740 MiB of stdout to write — measured at 2.97 s, all of it inside
+    // the request's shared deadline. That is what merely discarding the output
+    // costs; killing the child returns in 53 ms.
+    //
+    // One long line would amplify twice as hard but is useless here: rg cannot
+    // print a match before reading the whole line, so a 50 MB single line takes
+    // 1.8 s to produce its first byte and the two timings stop separating.
+    await writeFile(file, 'x\n'.repeat(10 * 1024 * 1024))
+    process.env.ENCODING_BRIDGE_MAX_GREP_OUTPUT_BYTES = '1000'
+    try {
+      const startedAt = Date.now()
+      const lines = await runRipgrep({
+        pattern: 'x',
+        cwd: root,
+        files: [file],
+        outputMode: 'content',
+        onlyMatching: true,
+        lineNumbers: true,
+        timeoutMs: 30_000,
+      })
+      // Tens of ms when the child is killed, seconds when it is not.
+      expect(Date.now() - startedAt).toBeLessThan(1000)
+      expect(lines.length).toBeGreaterThan(0)
+      for (const line of lines) expect(line.endsWith('x')).toBe(true)
+    } finally {
+      delete process.env.ENCODING_BRIDGE_MAX_GREP_OUTPUT_BYTES
+    }
+  })
 })

@@ -55,6 +55,10 @@ function searchArgs(options: RipgrepRunOptions): string[] {
     '--hidden',
     '--no-config',
     '--color', 'never',
+    // Bounds the largest single printed line, so base64 blobs and minified
+    // bundles cannot flood the output. Under `-o` this only bounds each MATCH
+    // rather than the line it came from (rg measures the text it prints, and
+    // that text is the match), which is what maxOnlyMatches exists to cover.
     '--max-columns', '500',
     // rg omits the `file:` prefix when it is handed exactly one file, which
     // silently breaks everything downstream: content lines lose the filename
@@ -109,7 +113,27 @@ function chunkFiles(files: string[], prefixLength: number): string[][] {
   return chunks
 }
 
-function runProcess(args: string[], cwd: string, timeoutMs: number): Promise<string[]> {
+/** Newlines in a chunk, counted at the byte level so the whole chunk is never
+ *  turned into a second string just to be measured. */
+function countNewlines(chunk: Buffer): number {
+  let count = 0
+  for (let index = 0; index < chunk.length; index += 1) {
+    if (chunk[index] === 0x0a) count += 1
+  }
+  return count
+}
+
+/**
+ * @param matchLimit Content-mode `-o` only. Output lines to accept before
+ *   stopping rg — see DEFAULT_GREP_MAX_ONLY_MATCHES for why `-o` needs a cap
+ *   of its own.
+ */
+function runProcess(
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+  matchLimit?: number,
+): Promise<string[]> {
   // Read once, before spawning: a malformed value should fail the call outright
   // rather than midway through a stream.
   const { maxOutputBytes } = grepLimits()
@@ -121,27 +145,45 @@ function runProcess(args: string[], cwd: string, timeoutMs: number): Promise<str
     let stdout = ''
     let stderr = ''
     let stdoutBytes = 0
+    let stdoutLines = 0
     let stdoutTruncated = false
     const timer = setTimeout(() => {
       child.kill()
       reject(new Error(`ripgrep timed out after ${timeoutMs}ms`))
     }, timeoutMs)
+    // Stop accumulating AND stop rg. Letting it run on would spend the request's
+    // shared deadline producing output that nothing will read — the 66 MB that a
+    // minified line makes `-o` emit still costs seconds even with the buffer
+    // capped. Claude's own cap terminates the child the same way (`execFile`'s
+    // maxBuffer kills it; measured 298 ms to return, not the 5 s timeout).
+    const stop = () => {
+      stdoutTruncated = true
+      child.kill()
+    }
     child.stdout?.on('data', chunk => {
       if (stdoutTruncated) return
       stdout += chunk.toString()
       stdoutBytes += chunk.length
-      // Stop accumulating past the cap; rg keeps running until it finishes or
-      // the deadline fires, but its output no longer lands in memory.
-      if (stdoutBytes > maxOutputBytes) stdoutTruncated = true
+      // Two counters because the caps bound different things: bytes bound the
+      // volume, output lines bound the amplification `-o` introduces.
+      if (matchLimit !== undefined) stdoutLines += countNewlines(chunk)
+      if (stdoutBytes > maxOutputBytes || (matchLimit !== undefined && stdoutLines > matchLimit)) {
+        stop()
+      }
     })
     child.stderr?.on('data', chunk => { stderr += chunk.toString() })
     child.on('error', error => {
       clearTimeout(timer)
       reject(error)
     })
-    child.on('close', code => {
+    child.on('close', (code, signal) => {
       clearTimeout(timer)
-      if (code === 0 || code === 1) {
+      // A child killed by us closes with no exit code and a signal instead
+      // (Windows: code null, signal SIGTERM). Requiring the signal — rather than
+      // trusting the truncation flag alone — keeps a genuine rg failure (exit 2)
+      // reported even when it happens after a cap was hit. The timeout path also
+      // kills, but it has already rejected by the time this runs.
+      if (code === 0 || code === 1 || (stdoutTruncated && signal !== null)) {
         const lines = stdout.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(Boolean)
         // The cap lands mid-chunk, so the final line may be a fragment: it is
         // not a real result and is dropped rather than reported as one.
@@ -165,16 +207,19 @@ function remainingBudget(options: { timeoutMs: number; deadline?: number }): num
 export async function runRipgrep(options: RipgrepRunOptions): Promise<string[]> {
   if (options.files !== undefined && options.files.length === 0) return []
   const args = searchArgs(options)
+  // Only `-o` needs it: every other mode prints at most one line per matching
+  // input line, so the byte cap alone bounds the volume.
+  const matchLimit = options.onlyMatching === true ? grepLimits().maxOnlyMatches : undefined
   if (options.files === undefined) {
     const budget = remainingBudget(options)
     if (options.target !== undefined) args.push(options.target)
-    return runProcess(args, options.cwd, budget)
+    return runProcess(args, options.cwd, budget, matchLimit)
   }
   const relativeFiles = options.files.map(file => path.isAbsolute(file) ? path.relative(options.cwd, file) : file)
   const chunks = chunkFiles(relativeFiles, args.reduce((total, item) => total + item.length + 1, 0))
   const lines: string[] = []
   for (const chunk of chunks) {
-    const found = await runProcess([...args, ...chunk], options.cwd, remainingBudget(options))
+    const found = await runProcess([...args, ...chunk], options.cwd, remainingBudget(options), matchLimit)
     // Appended one at a time on purpose: `lines.push(...found)` passes every
     // element as a call argument, and a match-heavy search can return enough
     // lines to exceed the argument limit (RangeError: Maximum call stack size

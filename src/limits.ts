@@ -6,6 +6,18 @@ const DEFAULT_GREP_MAX_FILES = 10_000
 const DEFAULT_GREP_MAX_DURATION_MS = 30_000
 const DEFAULT_GREP_MAX_LINE_CHARS = 16 * BYTES_PER_MEBIBYTE
 const DEFAULT_GREP_MAX_CONTEXT_LINES = 10_000
+/**
+ * Output lines one content-mode `-o` run may emit before ripgrep is stopped.
+ *
+ * `--max-columns` cannot cover this case. rg compares that limit against the
+ * text it is about to print, and under `-o` that text is a single match, never
+ * the line the match came from — so the line-length ceiling simply does not
+ * apply. `-m/--max-count` does not help either: rg documents that multiple
+ * matches in one line count once. A single 10 MB minified line therefore yields
+ * ~10M match lines at ~66 bytes each (the `path:lineno:` prefix dominates),
+ * roughly 66x the input. Kept below DEFAULT_GREP_MAX_OUTPUT_BYTES so that for
+ * short matches this is the cap that trips first.
+ */
 const DEFAULT_GREP_MAX_ONLY_MATCHES = 100_000
 
 /**
@@ -41,6 +53,7 @@ export interface GrepLimits {
   maxDurationMs: number
   maxLineChars: number
   maxContextLines: number
+  /** Content mode with `-o` only: output lines before rg is stopped. */
   maxOnlyMatches: number
   /** Bytes of rg stdout one run may buffer before the rest is discarded. */
   maxOutputBytes: number
