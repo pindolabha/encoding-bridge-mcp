@@ -50,6 +50,18 @@ export interface RipgrepRunOptions {
   fieldSeparators?: { match: string; context: string; group: string }
 }
 
+/**
+ * What one rg run produced. `truncated` says a cap stopped rg before it
+ * finished, which makes `lines` a prefix of the matches rather than all of
+ * them — the difference is unrecoverable (rg was killed, so the rest was never
+ * written), and callers must report it instead of presenting the count as a
+ * total.
+ */
+export interface RipgrepOutput {
+  lines: string[]
+  truncated: boolean
+}
+
 function searchArgs(options: RipgrepRunOptions): string[] {
   const args = [
     '--hidden',
@@ -133,7 +145,7 @@ function runProcess(
   cwd: string,
   timeoutMs: number,
   matchLimit?: number,
-): Promise<string[]> {
+): Promise<RipgrepOutput> {
   // Read once, before spawning: a malformed value should fail the call outright
   // rather than midway through a stream.
   const { maxOutputBytes } = grepLimits()
@@ -187,7 +199,10 @@ function runProcess(
         const lines = stdout.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(Boolean)
         // The cap lands mid-chunk, so the final line may be a fragment: it is
         // not a real result and is dropped rather than reported as one.
-        resolve(stdoutTruncated ? lines.slice(0, -1) : lines)
+        resolve({
+          lines: stdoutTruncated ? lines.slice(0, -1) : lines,
+          truncated: stdoutTruncated,
+        })
         return
       }
       reject(new Error(stderr.trim() || `ripgrep exited with code ${code}`))
@@ -204,8 +219,8 @@ function remainingBudget(options: { timeoutMs: number; deadline?: number }): num
   return budget
 }
 
-export async function runRipgrep(options: RipgrepRunOptions): Promise<string[]> {
-  if (options.files !== undefined && options.files.length === 0) return []
+export async function runRipgrep(options: RipgrepRunOptions): Promise<RipgrepOutput> {
+  if (options.files !== undefined && options.files.length === 0) return { lines: [], truncated: false }
   const args = searchArgs(options)
   // Only `-o` needs it: every other mode prints at most one line per matching
   // input line, so the byte cap alone bounds the volume.
@@ -218,15 +233,19 @@ export async function runRipgrep(options: RipgrepRunOptions): Promise<string[]> 
   const relativeFiles = options.files.map(file => path.isAbsolute(file) ? path.relative(options.cwd, file) : file)
   const chunks = chunkFiles(relativeFiles, args.reduce((total, item) => total + item.length + 1, 0))
   const lines: string[] = []
+  // One capped chunk is enough to make the combined list a prefix of the
+  // matches, so this is an OR over the runs, not the last run's flag.
+  let truncated = false
   for (const chunk of chunks) {
     const found = await runProcess([...args, ...chunk], options.cwd, remainingBudget(options), matchLimit)
     // Appended one at a time on purpose: `lines.push(...found)` passes every
     // element as a call argument, and a match-heavy search can return enough
     // lines to exceed the argument limit (RangeError: Maximum call stack size
     // exceeded) — a crash, not a truncated result.
-    for (const line of found) lines.push(line)
+    for (const line of found.lines) lines.push(line)
+    if (found.truncated) truncated = true
   }
-  return lines
+  return { lines, truncated }
 }
 
 export function isAsciiPattern(pattern: string): boolean {
@@ -254,12 +273,15 @@ export interface RipgrepListOptions {
  * encoding search cannot hand rg the directory (rg takes one `--encoding` per
  * run); it must bucket files by encoding first.
  */
-export async function listRipgrepFiles(options: RipgrepListOptions): Promise<string[]> {
+export async function listRipgrepFiles(options: RipgrepListOptions): Promise<{ files: string[]; truncated: boolean }> {
   const args = ['--files', '--hidden', '--no-config', '--color', 'never', '--no-ignore']
   for (const glob of DEFAULT_GLOBS) args.push('--glob', glob)
   if (options.glob) args.push('--glob', options.glob)
   for (const glob of options.typeGlobs ?? []) args.push('--glob', glob)
   if (options.target !== undefined) args.push(options.target)
-  const lines = await runProcess(args, options.cwd, remainingBudget(options))
-  return lines.map(line => path.resolve(options.cwd, line))
+  const { lines, truncated } = await runProcess(args, options.cwd, remainingBudget(options))
+  // Truncation is reported rather than swallowed: this list decides which files
+  // the encoding-grouped search ever looks at, so a capped enumeration silently
+  // drops files from the result — the same class of lie as a capped count.
+  return { files: lines.map(line => path.resolve(options.cwd, line)), truncated }
 }

@@ -213,13 +213,21 @@ export async function executeGrep(input: GrepInput): Promise<ToolResponse> {
   const shared = commonRipgrepOptions(input, mode, limits.maxDurationMs, deadline)
   let lines: string[] = []
   let usedRipgrepGroups = 1
+  // Set when a cap stopped rg early, which makes every count computed below a
+  // lower bound. Distinct from `truncated` (pagination): pagination hides
+  // results we did read, this says part of the scan never happened at all, and
+  // the two need separate notices because the second one changes what the
+  // numbers mean.
+  let cappedScan = false
 
   if (isAsciiPattern(input.pattern)) {
-    lines = await runRipgrep({
+    const found = await runRipgrep({
       ...shared,
       cwd: path.dirname(targetInput),
       target: targetInput,
     })
+    lines = found.lines
+    cappedScan = found.truncated
   } else {
     // rg --files enumerates candidates Rust-side (vs the serial JS walk it
     // replaces); the encoding index then buckets them for per-encoding passes.
@@ -234,8 +242,11 @@ export async function executeGrep(input: GrepInput): Promise<ToolResponse> {
       const typeGlobList = typeGlobs(input.type)
       if (typeGlobList !== undefined) listOptions.typeGlobs = typeGlobList
     }
-    const files = await listRipgrepFiles(listOptions)
-    const buckets = await bucketByEncoding(safeTarget.root, files)
+    const listed = await listRipgrepFiles(listOptions)
+    // A capped enumeration drops files from every bucket below, so it counts as
+    // a capped scan even if each individual search ran to completion.
+    if (listed.truncated) cappedScan = true
+    const buckets = await bucketByEncoding(safeTarget.root, listed.files)
     usedRipgrepGroups = buckets.size
     const grouped: string[] = []
     for (const [encoding, bucket] of buckets) {
@@ -250,7 +261,8 @@ export async function executeGrep(input: GrepInput): Promise<ToolResponse> {
         encoding: rgEncoding,
       })
       // Appended one at a time, not `grouped.push(...found)` — see runRipgrep.
-      for (const line of found) grouped.push(line)
+      for (const line of found.lines) grouped.push(line)
+      if (found.truncated) cappedScan = true
     }
     lines = grouped
   }
@@ -277,15 +289,29 @@ export async function executeGrep(input: GrepInput): Promise<ToolResponse> {
       : { numFiles: contentFileCount(outputLines), numMatches: matchCount }
   const notices: string[] = []
   if (truncated) notices.push(`Showing results with pagination = limit: ${limit}, offset: ${offset}; output is capped for server stability`)
+  // Separate from the pagination notice on purpose: that one says "there is
+  // more than I showed you", this one says "the numbers above are floors".
+  if (cappedScan) notices.push('The scan stopped at the output cap before finishing, so any count here is a lower bound rather than a total')
   const suffix = notices.length === 0 ? '' : `\n\n[${notices.join('] [')}]`
   const body = entries.join('\n')
   if (body.length === 0) {
     // Distinguish "the pattern matched nothing" from "matches exist but the
     // requested offset is past the end of the result list" — the flat message
     // made Claude conclude a keyword does not exist in the project.
-    const reason = lines.length === 0
-      ? `No matches found for \`${input.pattern}\`.`
-      : `No results at offset ${offset}; total matches: ${counts.numMatches}.`
+    let reason: string
+    if (lines.length === 0) {
+      // A capped scan can only land here if the one line it read was the
+      // fragment dropped above; "No matches found" would then be false.
+      reason = cappedScan
+        ? `The scan stopped at the output cap before any complete result was read for \`${input.pattern}\`.`
+        : `No matches found for \`${input.pattern}\`.`
+    } else if (cappedScan) {
+      // "total" would be a claim the capped scan cannot support: this offset may
+      // be past the end of what we read rather than past the end of the matches.
+      reason = `No results at offset ${offset}; the scan stopped at the output cap after ${counts.numMatches} matches, so more may exist beyond what was read.`
+    } else {
+      reason = `No results at offset ${offset}; total matches: ${counts.numMatches}.`
+    }
     return { content: [{ type: 'text', text: `${reason}${suffix}` }] }
   }
   const files = new Set<string>()
@@ -293,9 +319,12 @@ export async function executeGrep(input: GrepInput): Promise<ToolResponse> {
     const match = line.match(/^(.*?)[:\-]\d+[:\-]/) ?? line.match(/^(.*?):/)
     files.add(match?.[1] ?? line)
   }
+  // `+` marks a lower bound. A capped scan counted only the part of the output
+  // that survived, so both totals are floors, not totals.
+  const floor = cappedScan ? '+' : ''
   const headerLines = [
     `Pattern: \`${input.pattern}\``,
-    `Matches: ${counts.numMatches} across ${counts.numFiles} file${counts.numFiles === 1 ? '' : 's'}`,
+    `Matches: ${counts.numMatches}${floor} across ${counts.numFiles}${floor} file${counts.numFiles === 1 ? '' : 's'}`,
   ]
   // files_with_matches returns the file paths themselves as the body, so a
   // separate file list would repeat them; only content/count modes add one.

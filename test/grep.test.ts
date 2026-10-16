@@ -204,7 +204,7 @@ describe('ripgrep Grep', () => {
     await writeFile(file, 'MARKER '.repeat(100_000))
     process.env.ENCODING_BRIDGE_MAX_GREP_OUTPUT_BYTES = '1000'
     try {
-      const lines = await runRipgrep({
+      const { lines } = await runRipgrep({
         pattern: 'MARKER',
         cwd: root,
         files: [file],
@@ -237,7 +237,7 @@ describe('ripgrep Grep', () => {
     await writeFile(file, 'x'.repeat(1024 * 1024))
     process.env.ENCODING_BRIDGE_MAX_GREP_ONLY_MATCHES = '500'
     try {
-      const lines = await runRipgrep({
+      const { lines, truncated } = await runRipgrep({
         pattern: 'x',
         cwd: root,
         files: [file],
@@ -250,6 +250,9 @@ describe('ripgrep Grep', () => {
       // at most the one chunk that tripped it, so the bound stays generous.
       expect(lines.length).toBeLessThan(50_000)
       expect(lines.length).toBeGreaterThan(0)
+      // The caller has to know these lines are a prefix, not the whole match
+      // set — that flag is what the Grep header's lower-bound marker rides on.
+      expect(truncated).toBe(true)
       // The trailing line is dropped as a possible fragment, so everything kept
       // must still be a complete match.
       for (const line of lines) expect(line.endsWith('x')).toBe(true)
@@ -273,7 +276,7 @@ describe('ripgrep Grep', () => {
     process.env.ENCODING_BRIDGE_MAX_GREP_OUTPUT_BYTES = '1000'
     try {
       const startedAt = Date.now()
-      const lines = await runRipgrep({
+      const { lines, truncated } = await runRipgrep({
         pattern: 'x',
         cwd: root,
         files: [file],
@@ -285,9 +288,47 @@ describe('ripgrep Grep', () => {
       // Tens of ms when the child is killed, seconds when it is not.
       expect(Date.now() - startedAt).toBeLessThan(1000)
       expect(lines.length).toBeGreaterThan(0)
+      expect(truncated).toBe(true)
       for (const line of lines) expect(line.endsWith('x')).toBe(true)
     } finally {
       delete process.env.ENCODING_BRIDGE_MAX_GREP_OUTPUT_BYTES
     }
+  })
+
+  it('marks the counts as a lower bound when a cap stopped the scan', async () => {
+    const root = await fixture()
+    const file = path.join(root, 'many.txt')
+    // 100k matching lines is ~7.5 MiB of rg output; the cap below cuts the scan
+    // short, so the real count (100000) is unreachable — rg was killed and the
+    // rest was never written. Before this change the header printed a bare
+    // number that varied run to run for the same query (1956 / 2034 / 2112 /
+    // 787 for one file at a 20 KB cap) with nothing to mark it as a floor.
+    await writeFile(file, 'MARKER abcdefghij\n'.repeat(100_000))
+    process.env.ENCODING_BRIDGE_MAX_GREP_OUTPUT_BYTES = '20000'
+    try {
+      const result = await executeGrep({ pattern: 'MARKER', path: file, output_mode: 'content' })
+      const text = (result.content[0] as { text: string }).text
+      // `+` on both totals, and the notice that says what it means.
+      expect(text).toMatch(/Matches: \d+\+ across \d+\+ file/)
+      expect(text).toContain('The scan stopped at the output cap')
+      // The reported number really is short of the truth — that is why it is
+      // marked rather than simply corrected.
+      const reported = Number(/Matches: (\d+)\+/.exec(text)?.[1])
+      expect(reported).toBeGreaterThan(0)
+      expect(reported).toBeLessThan(100_000)
+    } finally {
+      delete process.env.ENCODING_BRIDGE_MAX_GREP_OUTPUT_BYTES
+    }
+  })
+
+  it('leaves the counts unmarked when nothing was capped', async () => {
+    const root = await fixture()
+    // Guards the marker against firing on ordinary searches: a `+` on a
+    // complete result would be its own kind of wrong.
+    const result = await executeGrep({ pattern: '错误', path: root, output_mode: 'content' })
+    const text = (result.content[0] as { text: string }).text
+    expect(text).toMatch(/Matches: \d+ across \d+ file/)
+    expect(text).not.toMatch(/Matches: \d+\+/)
+    expect(text).not.toContain('stopped at the output cap')
   })
 })
