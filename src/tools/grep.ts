@@ -1,17 +1,15 @@
-import type { Stats } from 'node:fs'
-import { readdir, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import path from 'node:path'
 
 import {
   listIndexedEncodings,
   ripgrepEncodingLabel,
-  shouldIgnoreDirectoryName,
 } from '../encoding/index.js'
 import { inspectProjectPath } from '../filesystem/index.js'
 import { grepLimits } from '../limits.js'
 import { getProjectFileContext, resolveFileEncoding } from '../core.js'
 import type { ToolResponse } from '../toolTypes.js'
-import { isAsciiPattern, runRipgrep } from './ripgrep.js'
+import { isAsciiPattern, listRipgrepFiles, runRipgrep, type RipgrepListOptions } from './ripgrep.js'
 import {
   assertObject,
   optionalBoolean,
@@ -151,40 +149,6 @@ function contentFileCount(lines: string[]): number {
   return files.size
 }
 
-async function collectFiles(
-  root: string,
-  target: string,
-  targetInfo: Stats,
-  glob: string | undefined,
-  type: string | undefined,
-): Promise<string[]> {
-  const { default: picomatch } = await import('picomatch')
-  const globMatcher = glob === undefined ? undefined : picomatch(glob, { dot: true })
-  const typeMatchers = typeGlobs(type)?.map(pattern => picomatch(pattern, { dot: true }))
-  const matches = (relative: string): boolean =>
-    (globMatcher === undefined || globMatcher(relative))
-    && (typeMatchers === undefined || typeMatchers.some(matcher => matcher(relative)))
-
-  if (targetInfo.isFile()) return matches(path.relative(root, target).split(path.sep).join('/')) ? [target] : []
-  const files: string[] = []
-  const visit = async (directory: string, relativeDirectory: string): Promise<void> => {
-    const entries = await readdir(directory, { withFileTypes: true })
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        if (shouldIgnoreDirectoryName(entry.name)) continue
-        const relative = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name
-        await visit(path.join(directory, entry.name), relative)
-        continue
-      }
-      if (!entry.isFile()) continue
-      const relative = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name
-      if (matches(relative)) files.push(path.join(directory, entry.name))
-    }
-  }
-  await visit(target, path.relative(root, target).split(path.sep).join('/'))
-  return files
-}
-
 async function bucketByEncoding(root: string, files: string[]): Promise<Map<string, string[]>> {
   const indexed = await listIndexedEncodings(root)
   const buckets = new Map<string, string[]>()
@@ -230,7 +194,9 @@ export async function executeGrep(input: GrepInput): Promise<ToolResponse> {
   const targetInput = path.resolve(input.path ?? process.cwd())
   const initialContext = await getProjectFileContext(targetInput)
   const safeTarget = await inspectProjectPath(initialContext.root, targetInput)
-  const targetInfo = await stat(safeTarget.target)
+  // Existence check with a friendly message; rg itself would otherwise fail
+  // with a bare "No such file or directory".
+  await stat(safeTarget.target)
   const mode = input.output_mode ?? 'files_with_matches'
   const scanMode = input.scan_mode ?? 'exact'
   if (scanMode === 'fast' && mode !== 'files_with_matches') {
@@ -250,7 +216,19 @@ export async function executeGrep(input: GrepInput): Promise<ToolResponse> {
       target: targetInput,
     })
   } else {
-    const files = await collectFiles(safeTarget.root, safeTarget.target, targetInfo, input.glob, input.type)
+    // rg --files enumerates candidates Rust-side (vs the serial JS walk it
+    // replaces); the encoding index then buckets them for per-encoding passes.
+    const listOptions: RipgrepListOptions = {
+      cwd: safeTarget.root,
+      target: safeTarget.target,
+      timeoutMs: limits.maxDurationMs,
+    }
+    if (input.glob !== undefined) listOptions.glob = input.glob
+    if (input.type !== undefined) {
+      const typeGlobList = typeGlobs(input.type)
+      if (typeGlobList !== undefined) listOptions.typeGlobs = typeGlobList
+    }
+    const files = await listRipgrepFiles(listOptions)
     const buckets = await bucketByEncoding(safeTarget.root, files)
     usedRipgrepGroups = buckets.size
     const grouped: string[] = []

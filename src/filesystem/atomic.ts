@@ -1,6 +1,6 @@
 import { open, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
-import { fileStateCache, type FileVersion } from "./cache.js";
+import { readFileState, type FileVersion } from "./cache.js";
 import { pathMutex } from "./mutex.js";
 import { inspectProjectPath } from "./path.js";
 
@@ -47,7 +47,7 @@ export async function atomicWriteBuffer(
       try {
         const info = await stat(initial.target);
         if (info.mtimeMs !== options.expected.mtimeMs) {
-          const current = await fileStateCache.read(root, input);
+          const current = await readFileState(root, input);
           if (current.hash !== options.expected.hash) throw new Error(`File changed since it was read: ${input}`);
         }
       } catch (error) {
@@ -73,7 +73,6 @@ export async function atomicWriteBuffer(
       await handle.close();
       handle = undefined;
       await replaceFile(temp, initial.target);
-      fileStateCache.clear(initial.target);
     } catch (error) {
       if (handle) await handle.close().catch(() => undefined);
       await rm(temp, { force: true }).catch(() => undefined);

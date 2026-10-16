@@ -5,7 +5,6 @@ import path from 'node:path'
 import iconv from 'iconv-lite'
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { fileStateCache } from '../src/filesystem/index.js'
 import { readRegistry } from '../src/core.js'
 import { executeEdit } from '../src/tools/edit.js'
 import { executeRead } from '../src/tools/read.js'
@@ -21,7 +20,7 @@ async function project(): Promise<string> {
 }
 
 beforeEach(() => {
-  fileStateCache.clear()
+  readRegistry.clear()
 })
 
 describe('encoding-transparent text tools', () => {
@@ -134,7 +133,6 @@ describe('encoding-transparent text tools', () => {
     await writeFile(file, iconv.encode('a\nb\nc\nd', 'gbk'))
     await executeRead({ file_path: file, offset: 1, limit: 2 })
     await writeFile(file, iconv.encode('x\ny\nz\nw', 'gbk'))
-    fileStateCache.clear()
     // Re-reading the changed file records the new version; with the encoding
     // indexed, an edit then succeeds like the built-in tools.
     await executeRead({ file_path: file, offset: 3, limit: 2 })
@@ -185,7 +183,6 @@ describe('encoding-transparent text tools', () => {
     await writeFile(file, iconv.encode('初始', 'gbk'))
     await executeRead({ file_path: file })
     await writeFile(file, iconv.encode('外部修改', 'gbk'))
-    fileStateCache.clear()
     await expect(executeWrite({ file_path: file, content: '覆盖' }))
       .rejects.toThrow(/unexpectedly modified/)
   })

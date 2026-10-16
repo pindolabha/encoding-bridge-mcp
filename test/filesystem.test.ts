@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   PathMutex,
   atomicWriteBuffer,
-  fileStateCache,
   inspectProjectPath,
+  readFileState,
   resolveProjectPath,
 } from "../src/filesystem/index.js";
 
@@ -57,12 +57,12 @@ describe("safe project paths", () => {
 });
 
 describe("file state and atomic writes", () => {
-  it("caches a complete read while returning partial slices and version state", async () => {
+  it("returns the requested slice together with version state", async () => {
     const root = await fixture();
     const file = path.join(root, "data.bin");
     await writeFile(file, Buffer.from("abcdef"));
-    const partial = await fileStateCache.read(root, file, { offset: 2, length: 2 });
-    const whole = await fileStateCache.read(root, file);
+    const partial = await readFileState(root, file, { offset: 2, length: 2 });
+    const whole = await readFileState(root, file);
     expect(partial.buffer.toString()).toBe("cd");
     expect(partial).toMatchObject({ partial: true, offset: 2, totalSize: 6 });
     expect(partial.hash).toBe(whole.hash);
@@ -89,7 +89,7 @@ describe("file state and atomic writes", () => {
     const file = path.join(root, "data.bin");
     await writeFile(file, "old");
     if (process.platform !== "win32") await chmod(file, 0o640);
-    const before = await fileStateCache.read(root, file);
+    const before = await readFileState(root, file);
     await atomicWriteBuffer(root, file, Buffer.from("new"), { expected: before });
     expect(await readFile(file, "utf8")).toBe("new");
     if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o640);

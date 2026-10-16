@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { stat } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 
 import {
@@ -12,7 +12,7 @@ import {
   rememberIndexedEncoding,
   type DecodedText,
 } from './encoding/index.js'
-import { fileStateCache, resolveProjectPath } from './filesystem/index.js'
+import { readFileState, resolveProjectPath } from './filesystem/index.js'
 
 export interface ProjectFileContext {
   absolutePath: string
@@ -95,24 +95,35 @@ export async function resolveFileEncoding(
   filePath: string,
   state?: { buffer: Buffer; mtimeMs: number; size: number },
 ): Promise<string> {
-  const current = state ?? await (async () => {
+  if (state === undefined) {
+    // Index-first: a fresh index entry answers without reading content, so
+    // range reads of indexed files touch only the requested lines. On an index
+    // miss (or a stale entry caught by the mtime/size check) read once, detect,
+    // remember.
     try {
-      return await fileStateCache.read(root, filePath)
+      const info = await stat(filePath)
+      const indexed = await lookupIndexedEncoding(root, filePath, { mtimeMs: info.mtimeMs, size: info.size })
+      if (indexed !== undefined) return indexed
+      const buffer = await readFile(filePath)
+      const detected = detectEncodingFromBytes(buffer)
+      const encoding = detected.kind === 'text' && detected.encoding !== undefined ? detected.encoding : 'utf-8'
+      await rememberIndexedEncoding(root, filePath, encoding, { mtimeMs: info.mtimeMs, size: info.size })
+      return encoding
     } catch {
-      return undefined
+      // Unreadable — same answer the old read-then-detect path gave on failure.
+      return 'utf-8'
     }
-  })()
-  if (current === undefined) return 'utf-8'
-  const indexed = await lookupIndexedEncoding(root, filePath, current)
+  }
+  const indexed = await lookupIndexedEncoding(root, filePath, state)
   if (indexed !== undefined) return indexed
-  const detected = detectEncodingFromBytes(current.buffer)
+  const detected = detectEncodingFromBytes(state.buffer)
   const encoding = detected.kind === 'text' && detected.encoding !== undefined ? detected.encoding : 'utf-8'
-  await rememberIndexedEncoding(root, filePath, encoding, { mtimeMs: current.mtimeMs, size: current.size })
+  await rememberIndexedEncoding(root, filePath, encoding, { mtimeMs: state.mtimeMs, size: state.size })
   return encoding
 }
 
 export async function readDecodedFile(context: ProjectFileContext): Promise<ReadSnapshot> {
-  const state = await fileStateCache.read(context.root, context.absolutePath)
+  const state = await readFileState(context.root, context.absolutePath)
   const encoding = await resolveFileEncoding(context.root, context.absolutePath, state)
   const decoded = decodeText(state.buffer, encoding)
   await rememberIndexedEncoding(context.root, context.absolutePath, decoded.encoding, {
@@ -166,12 +177,12 @@ export async function readDecodedRange(
   startLine: number,
   limit?: number,
 ): Promise<ReadRangeSnapshot> {
-  // Read-only path: skip the full-file sha256. mtime+size from the index are
-  // enough for "unchanged" checks here; only Edit/Write keep the hash for
-  // external-mutation protection. This is the hot Read path, so the 20ms+ hash
-  // cost on large files is avoided.
-  const state = await fileStateCache.read(context.root, context.absolutePath, { skipHash: true })
-  const encoding = await resolveFileEncoding(context.root, context.absolutePath, state)
+  // Read-only path: no full-file read here at all. The encoding comes from the
+  // index when it is fresh (stat-fresh, so stale entries re-detect), and the
+  // range itself is read by readFileRange — a 50-line read of a 500 MB indexed
+  // file touches ~50 lines instead of the whole file.
+  const info = await stat(context.absolutePath)
+  const encoding = await resolveFileEncoding(context.root, context.absolutePath)
   // readFileRange uses 0-based line offsets (like Claude's readFileInRange);
   // startLine here is 1-based.
   const result = await readFileRange(
@@ -190,9 +201,9 @@ export async function readDecodedRange(
     text: normalized,
     bom: null,
     newline: null,
-    mtimeMs: state.mtimeMs,
-    size: state.size,
-    hash: state.hash,
+    mtimeMs: info.mtimeMs,
+    size: info.size,
+    hash: '',
     complete: false,
     totalLines: result.totalLines,
   }

@@ -128,6 +128,9 @@ function runProcess(args: string[], cwd: string, timeoutMs: number): Promise<str
 export async function runRipgrep(options: RipgrepRunOptions): Promise<string[]> {
   if (options.files !== undefined && options.files.length === 0) return []
   const args = searchArgs(options)
+  // The timeout is a budget for the WHOLE request: each chunk gets only the
+  // time left, so a multi-chunk search cannot run for chunks × timeout.
+  const deadline = Date.now() + options.timeoutMs
   if (options.files === undefined) {
     if (options.target !== undefined) args.push(options.target)
     return runProcess(args, options.cwd, options.timeoutMs)
@@ -136,7 +139,11 @@ export async function runRipgrep(options: RipgrepRunOptions): Promise<string[]> 
   const chunks = chunkFiles(relativeFiles, args.reduce((total, item) => total + item.length + 1, 0))
   const lines: string[] = []
   for (const chunk of chunks) {
-    lines.push(...await runProcess([...args, ...chunk], options.cwd, options.timeoutMs))
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) {
+      throw new Error(`ripgrep timed out after ${options.timeoutMs}ms`)
+    }
+    lines.push(...await runProcess([...args, ...chunk], options.cwd, remaining))
   }
   return lines
 }
@@ -146,4 +153,30 @@ export function isAsciiPattern(pattern: string): boolean {
     if (pattern.charCodeAt(index) > 127) return false
   }
   return true
+}
+
+export interface RipgrepListOptions {
+  cwd: string
+  target?: string
+  glob?: string
+  typeGlobs?: string[]
+  timeoutMs: number
+}
+
+/**
+ * List candidate files with `rg --files` — a Rust-side parallel walk, replacing
+ * the serial `readdir` recursion the encoding-grouped search used to do in JS.
+ * The default exclude globs and the caller's glob/type filters are applied so
+ * the list matches what the search would look at. Needed because a legacy
+ * encoding search cannot hand rg the directory (rg takes one `--encoding` per
+ * run); it must bucket files by encoding first.
+ */
+export async function listRipgrepFiles(options: RipgrepListOptions): Promise<string[]> {
+  const args = ['--files', '--hidden', '--no-config', '--color', 'never', '--no-ignore']
+  for (const glob of DEFAULT_GLOBS) args.push('--glob', glob)
+  if (options.glob) args.push('--glob', options.glob)
+  for (const glob of options.typeGlobs ?? []) args.push('--glob', glob)
+  if (options.target !== undefined) args.push(options.target)
+  const lines = await runProcess(args, options.cwd, options.timeoutMs)
+  return lines.map(line => path.resolve(options.cwd, line))
 }

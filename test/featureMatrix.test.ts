@@ -9,7 +9,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { configuredRoots, getProjectFileContext, readRegistry } from '../src/core.js'
 import { clearEncodingIndexCache, flushEncodingIndex, listIndexedEncodings, refreshEncodingIndex } from '../src/encoding/index.js'
 import { INDEX_DIRECTORY, INDEX_FILE } from '../src/encoding/detect.js'
-import { fileStateCache } from '../src/filesystem/index.js'
 import { executeEdit } from '../src/tools/edit.js'
 import { executeGrep } from '../src/tools/grep.js'
 import { executeRead } from '../src/tools/read.js'
@@ -47,7 +46,6 @@ async function indexFiles(): Promise<string[]> {
 let previousRoots: string | undefined
 
 beforeEach(() => {
-  fileStateCache.clear()
   readRegistry.clear()
   clearEncodingIndexCache()
   previousRoots = process.env.ENCODING_BRIDGE_ROOTS
@@ -169,7 +167,6 @@ describe('feature matrix: encoding index', () => {
     await writeIndex()
     // Overwrite with UTF-8; the index still holds gbk but the bytes changed.
     await writeFile(file, 'new utf8 content\n', 'utf8')
-    fileStateCache.clear()
     await executeRead({ file_path: file })
     await writeIndex()
     const after = await listIndexedEncodings(realRoot())
