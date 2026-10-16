@@ -28,7 +28,9 @@ const STREAM_CHUNK_SIZE = 256 * 1024
 export interface ReadRangeResult {
   text: string
   lineCount: number
-  totalLines: number
+  /** Total lines in the file, or undefined when the scan stopped early
+   *  because the requested range was fully read before EOF. */
+  totalLines: number | undefined
   totalBytes: number
   readBytes: number
   encoding: string
@@ -91,7 +93,7 @@ function spanInBuffer(
   let lineIndex = 0
   let from = contentStart
 
-  while (true) {
+  while (from < len) {
     const nl = scanner(buffer, from, len)
     const inRange = lineIndex >= offset && lineIndex < endLine
     if (inRange) {
@@ -123,8 +125,9 @@ class StreamingSpanAccumulator {
   private readonly offset: number
   private lineIndex = 0
   private startByte: number | undefined
-  private endByte: number | undefined
   private partial: Buffer = Buffer.alloc(0)
+  private partialLineIndex: number | undefined
+  private done = false
 
   constructor(encoding: string, offset: number, maxLines: number | undefined) {
     this.encoding = encoding
@@ -134,47 +137,62 @@ class StreamingSpanAccumulator {
     this.endLine = maxLines !== undefined ? offset + maxLines : Infinity
   }
 
-  /** Feed a chunk (already BOM-stripped on the first call). Returns selected bytes appended so far, if any. */
+  /** True once every line of the requested range has been captured. */
+  rangeComplete(): boolean {
+    return this.done
+  }
+
+  /**
+   * Feed a chunk (already BOM-stripped on the first call). Returns selected
+   * bytes appended so far, if any. Incomplete trailing lines are retained for
+   * the next chunk — they are only emitted once fully scanned.
+   */
   push(chunk: Buffer): Buffer[] {
     const data = this.partial.length > 0 ? Buffer.concat([this.partial, chunk]) : chunk
     this.partial = Buffer.alloc(0)
+    this.partialLineIndex = undefined
     const selectedChunks: Buffer[] = []
     let from = 0
     const len = data.length
 
-    while (true) {
+    while (from < len) {
       const nl = this.scanner(data, from, len)
-      const inRange = this.lineIndex >= this.offset && this.lineIndex < this.endLine
-      if (inRange) {
-        const lineEnd = nl === -1 ? len : nl
-        if (this.startByte === undefined) this.startByte = from
-        // Accumulate up to (excluding) the newline; internal newlines between
-        // selected lines are naturally preserved by the next iteration.
-        selectedChunks.push(data.subarray(from, lineEnd))
-      }
-      this.lineIndex++
       if (nl === -1) {
-        // Keep the trailing fragment (may be a partial final line).
+        // The tail has no newline: it continues in the next chunk (or is the
+        // file's unterminated last line, flushed by finish()). Retain it.
         this.partial = data.subarray(from)
+        this.partialLineIndex = this.lineIndex
         break
       }
+      const inRange = this.lineIndex >= this.offset && this.lineIndex < this.endLine
+      if (inRange) {
+        if (this.startByte === undefined) this.startByte = from
+        // Include the line's own newline when the NEXT line is also selected
+        // (keeps internal line breaks intact); the last selected line drops
+        // its newline, matching the fast path's span semantics.
+        const nextInRange = this.lineIndex + 1 < this.endLine
+        selectedChunks.push(data.subarray(from, nextInRange ? nl + this.width : nl))
+      }
+      this.lineIndex++
       from = nl + this.width
     }
+    if (this.lineIndex >= this.endLine) this.done = true
     return selectedChunks
   }
 
-  finish(): { bytes: Buffer[]; totalLines: number; lineCount: number; startByte: number; endByte: number } {
-    // Flush the retained partial line if it's inside the range.
-    const chunks = this.partial.length > 0 && this.lineIndex >= this.offset && this.lineIndex < this.endLine
-      ? [this.partial]
-      : []
-    const totalLines = this.partial.length > 0 ? this.lineIndex + 1 : this.lineIndex
+  /**
+   * Flush the retained unterminated last line (files without a trailing
+   * newline). Returns the selected bytes to append, if any.
+   */
+  finish(): { bytes: Buffer[]; totalLines: number; lineCount: number } {
+    const trailingInRange = this.partial.length > 0 && this.partialLineIndex !== undefined
+      && this.partialLineIndex >= this.offset && this.partialLineIndex < this.endLine
+    const chunks = trailingInRange ? [this.partial] : []
+    const totalLines = this.lineIndex + (this.partial.length > 0 ? 1 : 0)
     return {
       bytes: chunks,
       totalLines,
       lineCount: Math.max(0, Math.min(this.endLine, totalLines) - this.offset),
-      startByte: this.startByte ?? 0,
-      endByte: this.endByte ?? 0,
     }
   }
 }
@@ -224,6 +242,7 @@ export async function readFileRange(
     let remaining = info.size
     let pos = 0
     let first = true
+    let scannedAll = true
     while (remaining > 0) {
       const toRead = Math.min(STREAM_CHUNK_SIZE, remaining)
       const buf = Buffer.alloc(toRead)
@@ -238,14 +257,22 @@ export async function readFileRange(
       chunks.push(...acc.push(chunk))
       pos += bytesRead
       remaining -= bytesRead
+      // Stop reading once every requested line has been captured — the
+      // total line count is then unknown and reported as such.
+      if (acc.rangeComplete()) {
+        scannedAll = false
+        break
+      }
     }
-    const { bytes, totalLines, lineCount } = acc.finish()
-    const all = Buffer.concat([...chunks, ...bytes])
-    const text = decodeText(all, normalized).text
+    const fin = acc.finish()
+    const all = Buffer.concat([...chunks, ...fin.bytes])
+    // Match the fast path: drop a dangling CR from a CRLF pair at the span end.
+    const raw = stripTrailingNewline(all, normalized)
+    const text = decodeText(raw, normalized).text
     return {
       text,
-      lineCount,
-      totalLines,
+      lineCount: fin.lineCount,
+      totalLines: scannedAll ? fin.totalLines : undefined,
       totalBytes,
       readBytes: all.length,
       encoding: normalized,

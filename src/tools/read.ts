@@ -126,14 +126,18 @@ export async function executeRead(input: ReadInput): Promise<ToolResponse> {
     text: selectedText,
     complete: false,
     offset: input.offset ?? 1,
-    limit: input.limit ?? snapshot.totalLines,
+    ...(input.limit !== undefined
+      ? { limit: input.limit }
+      : snapshot.totalLines !== undefined
+        ? { limit: snapshot.totalLines }
+        : {}),
   }
 
   if (selectedText.length === 0 && snapshot.size === 0) {
     readRegistry.remember(remembered, { startLine: 1, endLine: 1, totalLines: 1 })
     return { content: [{ type: 'text', text: '<system-reminder>Warning: the file exists but has empty contents.</system-reminder>' }] }
   }
-  if (offset > snapshot.totalLines) {
+  if (snapshot.totalLines !== undefined && offset > snapshot.totalLines) {
     return {
       content: [{
         type: 'text',
@@ -151,7 +155,8 @@ export async function executeRead(input: ReadInput): Promise<ToolResponse> {
     return { content: notebookContent(selectedText) }
   }
 
-  const header = `File: ${context.absolutePath} (${snapshot.totalLines} lines${offset > 1 ? `, lines ${offset}-${offset + selectedLines.length - 1}` : ''})`
+  const rangeSuffix = offset > 1 ? `, lines ${offset}-${offset + selectedLines.length - 1}` : ''
+  const header = `File: ${context.absolutePath} (${snapshot.totalLines !== undefined ? `${snapshot.totalLines} lines${rangeSuffix}` : `lines ${offset}-${offset + selectedLines.length - 1}`})`
   const body = lineNumber(selectedText, offset)
   return {
     content: [{

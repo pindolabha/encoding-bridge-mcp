@@ -215,6 +215,53 @@ describe('encoding-transparent text tools', () => {
     expect(text).not.toContain('last')
   })
 
+  it('keeps line breaks between lines in a streaming multi-line read', async () => {
+    const root = await project()
+    const file = path.join(root, 'stream-multi.txt')
+    // > 10 MB so the read takes the streaming path; multiple lines so the
+    // assembly must carry newlines between selected lines.
+    const lines = Array.from({ length: 2000 }, (_, i) => `LINE${i} ` + 'x'.repeat(6 * 1024))
+    await writeFile(file, lines.join('\n') + '\n', 'utf8')
+    const read = await executeRead({ file_path: file, offset: 1, limit: 3 })
+    const text = (read.content[0] as { text: string }).text
+    expect(text).toMatch(/LINE0 [^\n]*\n\s*2\tLINE1 /)
+    expect(text).toMatch(/LINE1 [^\n]*\n\s*3\tLINE2 /)
+  })
+
+  it('reports no total for a streaming read that stopped before EOF', async () => {
+    const root = await project()
+    const file = path.join(root, 'stream-partial.txt')
+    const lines = Array.from({ length: 2000 }, (_, i) => `LINE${i} ` + 'x'.repeat(6 * 1024))
+    await writeFile(file, lines.join('\n') + '\n', 'utf8')
+    const read = await executeRead({ file_path: file, offset: 1, limit: 3 })
+    const text = (read.content[0] as { text: string }).text
+    // The scan stopped at line 3, so no total line count is claimed.
+    expect(text).toMatch(/lines 1-3\)/)
+    expect(text).not.toMatch(/\d+ lines, lines 1-3/)
+  })
+
+  it('does not duplicate the last line of a file without a trailing newline', async () => {
+    const root = await project()
+    const file = path.join(root, 'stream-no-nl.txt')
+    const lines = Array.from({ length: 2000 }, (_, i) => `LINE${i} ` + 'x'.repeat(6 * 1024))
+    await writeFile(file, lines.join('\n'), 'utf8') // no trailing newline
+    const read = await executeRead({ file_path: file, offset: 1995, limit: 10 })
+    const text = (read.content[0] as { text: string }).text
+    const occurrences = text.match(/LINE1999/g)?.length ?? 0
+    expect(occurrences).toBe(1)
+  })
+
+  it('counts the total lines of a trailing-newline file exactly', async () => {
+    const root = await project()
+    const file = path.join(root, 'totals.txt')
+    await writeFile(file, 'a\nb\nc\nd\n', 'utf8')
+    const read = await executeRead({ file_path: file, offset: 1, limit: 2 })
+    const text = (read.content[0] as { text: string }).text
+    // 4 lines with a trailing newline — the phantom line after the final \n
+    // must not be counted.
+    expect(text).toContain('(4 lines')
+  })
+
   it('reads a large GBK file by range with correct offset', async () => {
     const root = await project()
     const file = path.join(root, 'large-range.txt')

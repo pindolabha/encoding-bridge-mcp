@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { stat } from 'node:fs/promises'
 import path from 'node:path'
 
 import {
@@ -150,7 +151,9 @@ export interface ReadRangeSnapshot {
   size: number
   hash: string
   complete: boolean
-  totalLines: number
+  /** Total lines in the file, or undefined when the read stopped early
+   *  (large-file streaming) and the total was never counted. */
+  totalLines: number | undefined
 }
 
 /**
@@ -199,7 +202,7 @@ interface ReadCoverage {
   hash: string
   mtimeMs: number
   size: number
-  totalLines: number
+  totalLines: number | undefined
   intervals: Array<{ start: number; end: number }>
 }
 
@@ -282,7 +285,7 @@ export class ReadRegistry {
 
   remember(
     snapshot: ReadSnapshot,
-    range: { startLine: number; endLine: number; totalLines: number },
+    range: { startLine: number; endLine: number; totalLines: number | undefined },
   ): void {
     const key = snapshot.absolutePath
     const existing = this.coverage.get(key)
@@ -293,9 +296,10 @@ export class ReadRegistry {
     const intervals = sameVersion ? existing.intervals : []
     const merged = mergeIntervals(intervals, {
       start: Math.max(1, range.startLine),
-      end: Math.min(range.totalLines, range.endLine),
+      end: range.totalLines === undefined ? range.endLine : Math.min(range.totalLines, range.endLine),
     })
-    const complete = merged.length === 1
+    const complete = range.totalLines !== undefined
+      && merged.length === 1
       && merged[0]?.start === 1
       && merged[0].end >= range.totalLines
     const remembered: ReadSnapshot = { ...snapshot, complete }
@@ -348,11 +352,11 @@ export class ReadRegistry {
     const absolutePath = path.resolve(filePath)
     const previous = this.ranges.get(absolutePath)
     if (!previous || previous.offset !== offset || previous.limit !== limit) return false
-    // Compare mtime+size instead of a full-file sha256 — same safety for the
-    // "file unchanged, reuse prior content" short-circuit, but cheap on large
-    // files (no full read + hash on every Read).
-    const current = await fileStateCache.read(root, absolutePath, { skipHash: true })
-    return current.mtimeMs === previous.mtimeMs && current.size === previous.size
+    // Compare mtime+size via stat alone — reading the file just to check for
+    // changes wasted a full-file read on every repeat Read. (Claude's own
+    // dedup uses a stat-only modification-time check for the same reason.)
+    const info = await stat(absolutePath)
+    return info.mtimeMs === previous.mtimeMs && info.size === previous.size
   }
 
   updateAfterWrite(snapshot: ReadSnapshot, text: string, buffer: Buffer, mtimeMs: number): void {
