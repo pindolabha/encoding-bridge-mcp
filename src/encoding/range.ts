@@ -254,7 +254,10 @@ export async function readFileRange(
         chunk = chunk.subarray(start)
         first = false
       }
-      chunks.push(...acc.push(chunk))
+      // Appended one at a time, not `chunks.push(...acc.push(chunk))`: a 256 KiB
+      // chunk of very short lines yields more spans than a spread can pass as
+      // arguments (RangeError: Maximum call stack size exceeded).
+      for (const span of acc.push(chunk)) chunks.push(span)
       pos += bytesRead
       remaining -= bytesRead
       // Stop reading once every requested line has been captured — the

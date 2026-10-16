@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 
+import { grepLimits } from '../limits.js'
+
 const DEFAULT_GLOBS = [
   '!node_modules',
   '!.git',
@@ -108,6 +110,9 @@ function chunkFiles(files: string[], prefixLength: number): string[][] {
 }
 
 function runProcess(args: string[], cwd: string, timeoutMs: number): Promise<string[]> {
+  // Read once, before spawning: a malformed value should fail the call outright
+  // rather than midway through a stream.
+  const { maxOutputBytes } = grepLimits()
   return new Promise((resolve, reject) => {
     const child = spawn(ripgrepPath(), args, {
       cwd,
@@ -115,11 +120,20 @@ function runProcess(args: string[], cwd: string, timeoutMs: number): Promise<str
     })
     let stdout = ''
     let stderr = ''
+    let stdoutBytes = 0
+    let stdoutTruncated = false
     const timer = setTimeout(() => {
       child.kill()
       reject(new Error(`ripgrep timed out after ${timeoutMs}ms`))
     }, timeoutMs)
-    child.stdout?.on('data', chunk => { stdout += chunk.toString() })
+    child.stdout?.on('data', chunk => {
+      if (stdoutTruncated) return
+      stdout += chunk.toString()
+      stdoutBytes += chunk.length
+      // Stop accumulating past the cap; rg keeps running until it finishes or
+      // the deadline fires, but its output no longer lands in memory.
+      if (stdoutBytes > maxOutputBytes) stdoutTruncated = true
+    })
     child.stderr?.on('data', chunk => { stderr += chunk.toString() })
     child.on('error', error => {
       clearTimeout(timer)
@@ -128,7 +142,10 @@ function runProcess(args: string[], cwd: string, timeoutMs: number): Promise<str
     child.on('close', code => {
       clearTimeout(timer)
       if (code === 0 || code === 1) {
-        resolve(stdout.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(Boolean))
+        const lines = stdout.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(Boolean)
+        // The cap lands mid-chunk, so the final line may be a fragment: it is
+        // not a real result and is dropped rather than reported as one.
+        resolve(stdoutTruncated ? lines.slice(0, -1) : lines)
         return
       }
       reject(new Error(stderr.trim() || `ripgrep exited with code ${code}`))
@@ -157,7 +174,12 @@ export async function runRipgrep(options: RipgrepRunOptions): Promise<string[]> 
   const chunks = chunkFiles(relativeFiles, args.reduce((total, item) => total + item.length + 1, 0))
   const lines: string[] = []
   for (const chunk of chunks) {
-    lines.push(...await runProcess([...args, ...chunk], options.cwd, remainingBudget(options)))
+    const found = await runProcess([...args, ...chunk], options.cwd, remainingBudget(options))
+    // Appended one at a time on purpose: `lines.push(...found)` passes every
+    // element as a call argument, and a match-heavy search can return enough
+    // lines to exceed the argument limit (RangeError: Maximum call stack size
+    // exceeded) — a crash, not a truncated result.
+    for (const line of found) lines.push(line)
   }
   return lines
 }

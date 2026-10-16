@@ -8,6 +8,17 @@ const DEFAULT_GREP_MAX_LINE_CHARS = 16 * BYTES_PER_MEBIBYTE
 const DEFAULT_GREP_MAX_CONTEXT_LINES = 10_000
 const DEFAULT_GREP_MAX_ONLY_MATCHES = 100_000
 
+/**
+ * Bytes of ripgrep stdout one run may buffer before the rest is discarded.
+ *
+ * Same value as Claude's own `MAX_BUFFER_SIZE` (20 MB, "large monorepos can
+ * have 200k+ files"). Claude counts JavaScript string length; this counts
+ * received bytes, so it is slightly stricter on multi-byte text. Without a cap
+ * a single match-everything `-o` or a huge `-A` can emit hundreds of MB, all of
+ * which was read into memory before any display-side limit applied.
+ */
+const DEFAULT_GREP_MAX_OUTPUT_BYTES = 20 * BYTES_PER_MEBIBYTE
+
 function parsePositiveInteger(value: string | undefined): number | undefined {
   if (value === undefined || !/^\d+$/.test(value)) return undefined
   const parsed = Number(value)
@@ -31,6 +42,8 @@ export interface GrepLimits {
   maxLineChars: number
   maxContextLines: number
   maxOnlyMatches: number
+  /** Bytes of rg stdout one run may buffer before the rest is discarded. */
+  maxOutputBytes: number
 }
 
 export function grepLimits(): GrepLimits {
@@ -41,6 +54,7 @@ export function grepLimits(): GrepLimits {
     maxLineChars: configuredPositiveInteger('ENCODING_BRIDGE_MAX_GREP_LINE_CHARS', DEFAULT_GREP_MAX_LINE_CHARS),
     maxContextLines: configuredPositiveInteger('ENCODING_BRIDGE_MAX_GREP_CONTEXT_LINES', DEFAULT_GREP_MAX_CONTEXT_LINES),
     maxOnlyMatches: configuredPositiveInteger('ENCODING_BRIDGE_MAX_GREP_ONLY_MATCHES', DEFAULT_GREP_MAX_ONLY_MATCHES),
+    maxOutputBytes: configuredPositiveInteger('ENCODING_BRIDGE_MAX_GREP_OUTPUT_BYTES', DEFAULT_GREP_MAX_OUTPUT_BYTES),
   }
 }
 

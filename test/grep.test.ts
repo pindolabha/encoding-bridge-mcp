@@ -180,4 +180,48 @@ describe('ripgrep Grep', () => {
       deadline: Date.now() - 1,
     })).rejects.toThrow(/timed out after 30000ms/)
   })
+
+  it('returns a match-heavy result set instead of overflowing the stack', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'encoding-grep-many-'))
+    process.env.ENCODING_BRIDGE_ROOTS = root
+    process.chdir(root)
+    // 200k matching lines in one encoding group. Appending rg's output with
+    // `push(...lines)` passes each line as a call argument, which overflows the
+    // stack at this size — so this fails if either spread is reintroduced.
+    await writeFile(path.join(root, 'many.txt'), iconv.encode('中文\n'.repeat(200_000), 'gbk'))
+    const result = await executeGrep({ pattern: '中文', path: root, output_mode: 'content' })
+    const text = (result.content[0] as { text: string }).text
+    expect(text).toContain('Matches: 200000 across 1 file')
+    expect(text).toContain('output is capped for server stability')
+  })
+
+  it('caps the bytes read from rg and never reports a truncated fragment', async () => {
+    const root = await fixture()
+    const file = path.join(root, 'many.txt')
+    // 100k matches is ~1.7 MiB of rg output — over the assertion below, but
+    // still under the ~125k lines where a spread would overflow the stack, so
+    // this exercises the byte cap and not the stack fix.
+    await writeFile(file, 'MARKER '.repeat(100_000))
+    process.env.ENCODING_BRIDGE_MAX_GREP_OUTPUT_BYTES = '1000'
+    try {
+      const lines = await runRipgrep({
+        pattern: 'MARKER',
+        cwd: root,
+        files: [file],
+        outputMode: 'content',
+        onlyMatching: true,
+        lineNumbers: true,
+        timeoutMs: 30_000,
+      })
+      const bytes = lines.reduce((total, line) => total + line.length + 1, 0)
+      // The cap is 1 KiB; the overshoot is at most one pipe chunk.
+      expect(bytes).toBeLessThan(1024 * 1024)
+      expect(lines.length).toBeGreaterThan(0)
+      // Truncation lands mid-chunk, so the last buffered line can be a fragment.
+      // Every line that is reported must still be a complete match.
+      for (const line of lines) expect(line.endsWith('MARKER')).toBe(true)
+    } finally {
+      delete process.env.ENCODING_BRIDGE_MAX_GREP_OUTPUT_BYTES
+    }
+  })
 })

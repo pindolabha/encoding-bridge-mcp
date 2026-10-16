@@ -243,12 +243,14 @@ export async function executeGrep(input: GrepInput): Promise<ToolResponse> {
       if (rgEncoding === undefined) {
         throw new Error(`Encoding ${encoding} is not supported by ripgrep`)
       }
-      grouped.push(...await runRipgrep({
+      const found = await runRipgrep({
         ...shared,
         cwd: safeTarget.root,
         files: bucket,
         encoding: rgEncoding,
-      }))
+      })
+      // Appended one at a time, not `grouped.push(...found)` — see runRipgrep.
+      for (const line of found) grouped.push(line)
     }
     lines = grouped
   }
