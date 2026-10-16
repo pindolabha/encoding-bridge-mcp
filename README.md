@@ -24,7 +24,7 @@ workspaces Encoding Bridge should handle:
     "encoding-bridge": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "encoding-bridge-mcp"],
+      "args": ["-y", "--prefer-online", "encoding-bridge-mcp@latest"],
       "env": {
         "ENCODING_BRIDGE_ROOTS": "E:/path/to/project-a;E:/path/to/project-b"
       }

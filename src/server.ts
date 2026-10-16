@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { realpathSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
@@ -84,9 +86,26 @@ function toCallToolResult(response: ToolResponse): CallToolResult {
   }
 }
 
+// The handshake version is the only way a client can tell which build is
+// running, so it has to be the real package version rather than a constant.
+// Walk up instead of using a fixed '../../': the module runs from dist/src/ in
+// production but straight from src/ under vitest, and those are at different
+// depths relative to the package root.
+function packageVersion(): string {
+  const require = createRequire(import.meta.url)
+  let dir = path.dirname(fileURLToPath(import.meta.url))
+  for (;;) {
+    const candidate = path.join(dir, 'package.json')
+    if (existsSync(candidate)) return (require(candidate) as { version: string }).version
+    const parent = path.dirname(dir)
+    if (parent === dir) return '0.0.0'
+    dir = parent
+  }
+}
+
 export function createServer(): Server {
   const server = new Server(
-    { name: 'encoding-bridge', version: '0.1.0' },
+    { name: 'encoding-bridge', version: packageVersion() },
     { capabilities: { tools: {} } },
   )
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [...toolDefinitions] }))
