@@ -82,4 +82,42 @@ describe('ripgrep Grep', () => {
     expect(text).toContain('错误')
     expect(text).toContain('pagination')
   })
+
+  it('counts matches precisely in content mode with context lines', async () => {
+    const root = await fixture()
+    await writeFile(path.join(root, 'ctx.txt'), 'hit\nbefore\nhit\nbetween\nhit\nafter\n', 'utf8')
+    const result = await executeGrep({
+      pattern: 'hit',
+      path: root,
+      output_mode: 'content',
+      '-C': 1,
+    })
+    const text = (result.content[0] as { text: string }).text
+    // 3 real matches; the output also carries 3 context lines and `--` breaks,
+    // which must not inflate the count.
+    expect(text).toContain('Matches: 3 across 1 file')
+    expect(text).not.toContain('Matches: 8')
+  })
+
+  it('reports an out-of-range offset without claiming no matches', async () => {
+    const root = await fixture()
+    const result = await executeGrep({
+      pattern: '错误',
+      path: root,
+      output_mode: 'content',
+      offset: 1000,
+    })
+    const text = (result.content[0] as { text: string }).text
+    expect(text).toContain('No results at offset 1000')
+    expect(text).toContain('total matches: 3')
+    expect(text).not.toContain('No matches found')
+  })
+
+  it('includes .h headers in the cpp file type', async () => {
+    const root = await fixture()
+    await writeFile(path.join(root, 'decl.h'), 'class SeFoo;\n', 'utf8')
+    const result = await executeGrep({ pattern: 'SeFoo', path: root, type: 'cpp' })
+    const text = (result.content[0] as { text: string }).text
+    expect(text).toContain('decl.h')
+  })
 })

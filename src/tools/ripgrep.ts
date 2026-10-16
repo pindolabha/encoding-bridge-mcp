@@ -38,6 +38,9 @@ export interface RipgrepRunOptions {
   glob?: string
   typeGlobs?: string[]
   timeoutMs: number
+  /** Content mode only: sentinel separators so matches can be counted
+   *  precisely even when context lines are mixed into the output. */
+  fieldSeparators?: { match: string; context: string; group: string }
 }
 
 function searchArgs(options: RipgrepRunOptions): string[] {
@@ -49,6 +52,13 @@ function searchArgs(options: RipgrepRunOptions): string[] {
   ]
   if (options.files === undefined) args.push('--no-ignore')
   if (options.encoding !== undefined) args.push('--encoding', options.encoding)
+  if (options.fieldSeparators) {
+    args.push(
+      '--field-match-separator', options.fieldSeparators.match,
+      '--field-context-separator', options.fieldSeparators.context,
+      '--context-separator', options.fieldSeparators.group,
+    )
+  }
   if (options.caseInsensitive) args.push('-i')
   if (options.multiline) args.push('-U', '--multiline-dotall')
   if (options.outputMode === 'files_with_matches') args.push('-l')

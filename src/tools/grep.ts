@@ -46,6 +46,14 @@ export interface GrepInput {
 const MAX_GREP_ENTRIES = 10_000
 const MAX_GREP_RESPONSE_CHARS = 1024 * 1024
 
+// Content mode asks rg for control-character field separators (never present
+// in real source files) so matches can be counted precisely even when context
+// lines and `--` group breaks are mixed into the output; the standard
+// `:`/`-` format is restored before display.
+const MATCH_SEP = '\x01'
+const CONTEXT_SEP = '\x02'
+const GROUP_SEP = '\x03'
+
 const TYPE_GLOBS: Readonly<Record<string, string[]>> = {
   js: ['**/*.js', '**/*.jsx', '**/*.mjs', '**/*.cjs'],
   ts: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts'],
@@ -54,7 +62,7 @@ const TYPE_GLOBS: Readonly<Record<string, string[]>> = {
   go: ['**/*.go'],
   java: ['**/*.java'],
   c: ['**/*.c', '**/*.h'],
-  cpp: ['**/*.cc', '**/*.cpp', '**/*.cxx', '**/*.hpp', '**/*.hh'],
+  cpp: ['**/*.cc', '**/*.cpp', '**/*.cxx', '**/*.hpp', '**/*.hh', '**/*.h', '**/*.hxx'],
   cs: ['**/*.cs'],
   json: ['**/*.json'],
   yaml: ['**/*.yaml', '**/*.yml'],
@@ -203,6 +211,7 @@ function commonRipgrepOptions(input: GrepInput, mode: GrepOutputMode, timeoutMs:
   return {
     pattern: input.pattern,
     outputMode: mode,
+    ...(mode === 'content' ? { fieldSeparators: { match: MATCH_SEP, context: CONTEXT_SEP, group: GROUP_SEP } } : {}),
     ...(input['-i'] === undefined ? {} : { caseInsensitive: input['-i'] }),
     lineNumbers: input['-n'] ?? true,
     ...(input['-o'] === undefined ? {} : { onlyMatching: input['-o'] }),
@@ -260,18 +269,38 @@ export async function executeGrep(input: GrepInput): Promise<ToolResponse> {
     lines = grouped
   }
 
-  const { entries, truncated } = paginate(lines, offset, limit)
+  // Content mode returns sentinel-separated lines: count actual matches (a
+  // context request would otherwise inflate the number with context lines and
+  // `--` breaks), then restore rg's standard `:`/`-` format for display.
+  const matchCount = mode === 'content'
+    ? lines.filter(line => line.includes(MATCH_SEP)).length
+    : lines.length
+  const outputLines = mode === 'content'
+    ? lines.map(line => line === GROUP_SEP
+      ? '--'
+      : line.includes(MATCH_SEP)
+        ? line.replaceAll(MATCH_SEP, ':')
+        : line.replaceAll(CONTEXT_SEP, '-'))
+    : lines
+
+  const { entries, truncated } = paginate(outputLines, offset, limit)
   const counts = mode === 'count'
     ? countModeTotals(lines)
     : mode === 'files_with_matches'
       ? { numFiles: lines.length, numMatches: lines.length }
-      : { numFiles: contentFileCount(lines), numMatches: lines.length }
+      : { numFiles: contentFileCount(outputLines), numMatches: matchCount }
   const notices: string[] = []
   if (truncated) notices.push(`Showing results with pagination = limit: ${limit}, offset: ${offset}; output is capped for server stability`)
   const suffix = notices.length === 0 ? '' : `\n\n[${notices.join('] [')}]`
   const body = entries.join('\n')
   if (body.length === 0) {
-    return { content: [{ type: 'text', text: `No matches found for \`${input.pattern}\`.${suffix}` }] }
+    // Distinguish "the pattern matched nothing" from "matches exist but the
+    // requested offset is past the end of the result list" — the flat message
+    // made Claude conclude a keyword does not exist in the project.
+    const reason = lines.length === 0
+      ? `No matches found for \`${input.pattern}\`.`
+      : `No results at offset ${offset}; total matches: ${counts.numMatches}.`
+    return { content: [{ type: 'text', text: `${reason}${suffix}` }] }
   }
   const files = new Set<string>()
   for (const line of entries) {
