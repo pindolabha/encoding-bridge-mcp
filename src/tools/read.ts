@@ -73,7 +73,7 @@ export async function executeRead(input: ReadInput): Promise<ToolResponse> {
     return {
       content: [{
         type: 'text',
-        text: 'File unchanged since last read. The content from the earlier Read tool_result in this conversation is still current — refer to that instead of re-reading.',
+        text: 'File unchanged since last read. The content from the earlier Read tool_result in this conversation is still current — refer to that instead of re-reading. If that earlier content is no longer in your context (e.g. after compaction), re-read with a different offset or limit to fetch the full file again.',
       }],
     }
   }
