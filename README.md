@@ -14,6 +14,10 @@ Projects that need to read and write non-UTF-8 files.
 
 ## Install
 
+```sh
+npm install -g encoding-bridge-mcp
+```
+
 In a project that handles legacy encodings (GBK/GB2312, etc.), add a
 `.mcp.json` in the project root and set `ENCODING_BRIDGE_ROOTS` to the
 workspaces Encoding Bridge should handle:
@@ -23,8 +27,8 @@ workspaces Encoding Bridge should handle:
   "mcpServers": {
     "encoding-bridge": {
       "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "--prefer-online", "encoding-bridge-mcp@latest"],
+      "command": "encoding-bridge-mcp",
+      "args": [],
       "env": {
         "ENCODING_BRIDGE_ROOTS": "E:/path/to/project-a;E:/path/to/project-b"
       }

@@ -12,6 +12,10 @@ Claude 内置工具默认按 UTF-8 读写文件，非 UTF-8 文件会乱码。En
 
 ## 安装
 
+```sh
+npm install -g encoding-bridge-mcp
+```
+
 在需要处理遗留编码（GBK/GB2312 等）的项目里，项目根目录加一个 `.mcp.json`，在 `ENCODING_BRIDGE_ROOTS` 里配置要用 Encoding Bridge 的工作区（根目录）：
 
 ```json
@@ -19,8 +23,8 @@ Claude 内置工具默认按 UTF-8 读写文件，非 UTF-8 文件会乱码。En
   "mcpServers": {
     "encoding-bridge": {
       "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "--prefer-online", "encoding-bridge-mcp@latest"],
+      "command": "encoding-bridge-mcp",
+      "args": [],
       "env": {
         "ENCODING_BRIDGE_ROOTS": "E:/path/to/project-a;E:/path/to/project-b"
       }
