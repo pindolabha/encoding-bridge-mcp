@@ -149,10 +149,34 @@ function contentFileCount(lines: string[]): number {
   return files.size
 }
 
-async function bucketByEncoding(root: string, files: string[]): Promise<Map<string, string[]>> {
+/**
+ * Group files by encoding so each group can be searched with one `rg
+ * --encoding` run.
+ *
+ * Probing the encoding of a file that is not in the index means reading it, and
+ * an incomplete index over a large tree makes that thousands of serial reads —
+ * measured at 164 s for one Grep call on `E:/workspace/Program`, long after rg
+ * itself had been stopped. That made a timed-out call look hung instead of
+ * failing, so the deadline is enforced here too: once it passes this throws,
+ * exactly like a timed-out rg. Reporting the timeout is the contract — the
+ * caller is expected to narrow the search, not to receive a partial scan
+ * dressed up as a complete one.
+ *
+ * The check runs between files, so one probe already in flight finishes rather
+ * than aborting a read mid-way and leaving a half-written index entry.
+ */
+async function bucketByEncoding(
+  root: string,
+  files: string[],
+  deadline?: number,
+  budgetMs?: number,
+): Promise<Map<string, string[]>> {
   const indexed = await listIndexedEncodings(root)
   const buckets = new Map<string, string[]>()
   for (const file of files) {
+    if (deadline !== undefined && Date.now() >= deadline) {
+      throw new Error(`ripgrep timed out after ${budgetMs}ms`)
+    }
     const relative = path.relative(root, file).split(path.sep).join('/')
     const cached = indexed.get(relative)?.encoding
     const encoding = cached ?? await resolveFileEncoding(root, file)
@@ -246,7 +270,7 @@ export async function executeGrep(input: GrepInput): Promise<ToolResponse> {
     // A capped enumeration drops files from every bucket below, so it counts as
     // a capped scan even if each individual search ran to completion.
     if (listed.truncated) cappedScan = true
-    const buckets = await bucketByEncoding(safeTarget.root, listed.files)
+    const buckets = await bucketByEncoding(safeTarget.root, listed.files, deadline, limits.maxDurationMs)
     usedRipgrepGroups = buckets.size
     const grouped: string[] = []
     for (const [encoding, bucket] of buckets) {

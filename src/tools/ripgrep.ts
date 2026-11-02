@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 
@@ -136,15 +136,48 @@ function countNewlines(chunk: Buffer): number {
 }
 
 /**
+ * Kill rg and everything it spawned.
+ *
+ * `child.kill()` only signals the direct child. On Windows that is not enough
+ * to be sure the process is gone, and if it survives, its pipes stay open and
+ * the 'close' event never fires — leaving the caller's Promise pending forever.
+ * `taskkill /T` takes the whole tree. Failure is ignored: the point is to try,
+ * not to guarantee, since the fallbacks below cover a kill that does not land.
+ */
+function killProcessTree(child: ChildProcess) {
+  if (child.pid === undefined) return
+  if (process.platform === 'win32') {
+    try {
+      spawn('taskkill', ['/F', '/T', '/PID', String(child.pid)], {
+        windowsHide: true,
+        stdio: 'ignore',
+      }).on('error', () => {})
+    } catch {
+      // Fall through to the direct kill below.
+    }
+  }
+  try {
+    child.kill()
+  } catch {
+    // Already gone.
+  }
+}
+
+/**
  * @param matchLimit Content-mode `-o` only. Output lines to accept before
  *   stopping rg — see DEFAULT_GREP_MAX_ONLY_MATCHES for why `-o` needs a cap
  *   of its own.
+ * @param reportedTimeout The configured budget, used only for the timeout
+ *   message. `timeoutMs` is what is *left* of a request-wide deadline and can be
+ *   far smaller; reporting it made the message disagree with the setting the
+ *   user had configured.
  */
 function runProcess(
   args: string[],
   cwd: string,
   timeoutMs: number,
   matchLimit?: number,
+  reportedTimeout = timeoutMs,
 ): Promise<RipgrepOutput> {
   // Read once, before spawning: a malformed value should fail the call outright
   // rather than midway through a stream.
@@ -159,9 +192,25 @@ function runProcess(
     let stdoutBytes = 0
     let stdoutLines = 0
     let stdoutTruncated = false
+    // Guards every settle. `close` is not guaranteed after a kill — measured
+    // roughly one run in three on Windows — and a Promise that never settles
+    // hangs the whole Grep call, since `runRipgrep` awaits these sequentially.
+    let settled = false
+    const settle = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      fn()
+    }
     const timer = setTimeout(() => {
-      child.kill()
-      reject(new Error(`ripgrep timed out after ${timeoutMs}ms`))
+      killProcessTree(child)
+      // Destroy the streams rather than waiting for the child to release them.
+      // A pipe that outlives its writer keeps the event loop alive and stops
+      // 'close' from firing; tearing them down here decouples the two.
+      child.stdout?.destroy()
+      child.stderr?.destroy()
+      child.stdin?.destroy()
+      settle(() => reject(new Error(`ripgrep timed out after ${reportedTimeout}ms`)))
     }, timeoutMs)
     // Stop accumulating AND stop rg. Letting it run on would spend the request's
     // shared deadline producing output that nothing will read — the 66 MB that a
@@ -170,7 +219,7 @@ function runProcess(
     // maxBuffer kills it; measured 298 ms to return, not the 5 s timeout).
     const stop = () => {
       stdoutTruncated = true
-      child.kill()
+      killProcessTree(child)
     }
     child.stdout?.on('data', chunk => {
       if (stdoutTruncated) return
@@ -185,11 +234,9 @@ function runProcess(
     })
     child.stderr?.on('data', chunk => { stderr += chunk.toString() })
     child.on('error', error => {
-      clearTimeout(timer)
-      reject(error)
+      settle(() => reject(error))
     })
     child.on('close', (code, signal) => {
-      clearTimeout(timer)
       // A child killed by us closes with no exit code and a signal instead
       // (Windows: code null, signal SIGTERM). Requiring the signal — rather than
       // trusting the truncation flag alone — keeps a genuine rg failure (exit 2)
@@ -199,13 +246,13 @@ function runProcess(
         const lines = stdout.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(Boolean)
         // The cap lands mid-chunk, so the final line may be a fragment: it is
         // not a real result and is dropped rather than reported as one.
-        resolve({
+        settle(() => resolve({
           lines: stdoutTruncated ? lines.slice(0, -1) : lines,
           truncated: stdoutTruncated,
-        })
+        }))
         return
       }
-      reject(new Error(stderr.trim() || `ripgrep exited with code ${code}`))
+      settle(() => reject(new Error(stderr.trim() || `ripgrep exited with code ${code}`)))
     })
   })
 }
@@ -228,7 +275,7 @@ export async function runRipgrep(options: RipgrepRunOptions): Promise<RipgrepOut
   if (options.files === undefined) {
     const budget = remainingBudget(options)
     if (options.target !== undefined) args.push(options.target)
-    return runProcess(args, options.cwd, budget, matchLimit)
+    return runProcess(args, options.cwd, budget, matchLimit, options.timeoutMs)
   }
   const relativeFiles = options.files.map(file => path.isAbsolute(file) ? path.relative(options.cwd, file) : file)
   const chunks = chunkFiles(relativeFiles, args.reduce((total, item) => total + item.length + 1, 0))
@@ -237,7 +284,7 @@ export async function runRipgrep(options: RipgrepRunOptions): Promise<RipgrepOut
   // matches, so this is an OR over the runs, not the last run's flag.
   let truncated = false
   for (const chunk of chunks) {
-    const found = await runProcess([...args, ...chunk], options.cwd, remainingBudget(options), matchLimit)
+    const found = await runProcess([...args, ...chunk], options.cwd, remainingBudget(options), matchLimit, options.timeoutMs)
     // Appended one at a time on purpose: `lines.push(...found)` passes every
     // element as a call argument, and a match-heavy search can return enough
     // lines to exceed the argument limit (RangeError: Maximum call stack size
@@ -279,7 +326,7 @@ export async function listRipgrepFiles(options: RipgrepListOptions): Promise<{ f
   if (options.glob) args.push('--glob', options.glob)
   for (const glob of options.typeGlobs ?? []) args.push('--glob', glob)
   if (options.target !== undefined) args.push(options.target)
-  const { lines, truncated } = await runProcess(args, options.cwd, remainingBudget(options))
+  const { lines, truncated } = await runProcess(args, options.cwd, remainingBudget(options), undefined, options.timeoutMs)
   // Truncation is reported rather than swallowed: this list decides which files
   // the encoding-grouped search ever looks at, so a capped enumeration silently
   // drops files from the result — the same class of lie as a capped count.
